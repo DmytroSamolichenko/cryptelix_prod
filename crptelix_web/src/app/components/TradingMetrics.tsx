@@ -1,0 +1,179 @@
+import { TrendingUp, TrendingDown } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { motion } from 'motion/react';
+
+const STATS_API = 'http://localhost:8000/api/v1/trades/stats';
+
+interface TradesStatsPayload {
+  total_net_profit: number;
+  profit_factor: number | null;
+  total_trades: number;
+  winners: number;
+  losers: number;
+  max_drawdown: number;
+  max_drawdown_percent: number;
+  percent_profitable: number;
+  avg_trade: number;
+}
+
+function formatUsd(n: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
+function percentProfitableColor(pct: number): string {
+  if (pct < 20) return 'text-red-400';
+  if (pct <= 50) return 'text-yellow-400';
+  return 'text-green-400';
+}
+
+export function KeyMetricsCards() {
+  const [stats, setStats] = useState<TradesStatsPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(STATS_API);
+        if (!res.ok) {
+          console.error('Failed to fetch /api/v1/trades/stats', res.status);
+          setStats(null);
+          return;
+        }
+        const data = (await res.json()) as TradesStatsPayload;
+        setStats(data);
+      } catch (e) {
+        console.error('Error fetching trade stats', e);
+        setStats(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    void load();
+  }, []);
+
+  const tnp = stats?.total_net_profit ?? 0;
+  const tnpPositive = tnp > 0;
+  const tnpNegative = tnp < 0;
+  const tnpColor = tnpPositive ? 'text-green-400' : tnpNegative ? 'text-red-400' : 'text-zinc-200';
+
+  const avg = stats?.avg_trade ?? 0;
+  const avgColor = avg > 0 ? 'text-green-400' : avg < 0 ? 'text-red-400' : 'text-zinc-200';
+
+  const pp = stats?.percent_profitable ?? 0;
+  const ppColor = percentProfitableColor(pp);
+
+  const pfDisplay =
+    stats?.profit_factor != null && Number.isFinite(stats.profit_factor)
+      ? stats.profit_factor.toFixed(3)
+      : '—';
+
+  const maxDd = stats?.max_drawdown ?? 0;
+  const maxDdPct = stats?.max_drawdown_percent ?? 0;
+
+  return (
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-2 grid-rows-3 gap-2 overflow-hidden sm:gap-3">
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+          className="flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-2.5 sm:p-3"
+        >
+          <div className="text-[10px] font-medium text-gray-400 sm:text-xs">Total Net Profit</div>
+          <div
+            className={`flex min-w-0 items-center gap-1 text-lg font-bold leading-tight sm:text-xl md:text-2xl ${tnpColor}`}
+          >
+            {tnpPositive && <TrendingUp className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" aria-hidden />}
+            {tnpNegative && <TrendingDown className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" aria-hidden />}
+            <span className="truncate tabular-nums">
+              {loading && !stats ? '…' : formatUsd(tnp)}
+            </span>
+          </div>
+          <div className="text-[10px] text-gray-500 sm:text-xs">Inc. commissions</div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, delay: 0.03 }}
+          className="flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-2.5 sm:p-3"
+        >
+          <div className="text-[10px] font-medium text-gray-400 sm:text-xs">Profit Factor</div>
+          <div className="truncate text-lg font-bold tabular-nums text-zinc-100 sm:text-xl md:text-2xl">
+            {loading && !stats ? '…' : pfDisplay}
+          </div>
+          <div className="text-[10px] text-gray-500 sm:text-xs">Risk/Reward Ratio</div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, delay: 0.06 }}
+          className="flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-2.5 sm:p-3"
+        >
+          <div className="text-[10px] font-medium text-gray-400 sm:text-xs">Total Trades</div>
+          <div className="truncate text-lg font-bold tabular-nums text-zinc-100 sm:text-xl md:text-2xl">
+            {loading && !stats ? '…' : stats?.total_trades ?? 0}
+          </div>
+          <div className="text-[10px] leading-snug sm:text-xs">
+            <span className="font-medium text-green-400">
+              {stats?.winners ?? 0} winners
+            </span>
+            <span className="text-gray-500"> / </span>
+            <span className="font-medium text-red-400">{stats?.losers ?? 0} losers</span>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, delay: 0.09 }}
+          className="flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-2.5 sm:p-3"
+        >
+          <div className="text-[10px] font-medium text-gray-400 sm:text-xs">Max Drawdown</div>
+          <div className="flex min-w-0 items-center gap-1 text-lg font-bold leading-tight text-red-400 sm:text-xl md:text-2xl">
+            <TrendingDown className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" aria-hidden />
+            <span className="truncate tabular-nums">
+              {loading && !stats ? '…' : formatUsd(maxDd)}
+            </span>
+          </div>
+          <div className="text-[10px] tabular-nums text-gray-500 sm:text-xs">
+            {loading && !stats ? '…' : `${maxDdPct.toFixed(2)}%`}
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, delay: 0.12 }}
+          className="flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-2.5 sm:p-3"
+        >
+          <div className="text-[10px] font-medium text-gray-400 sm:text-xs">Percent Profitable</div>
+          <div className={`truncate text-lg font-bold tabular-nums sm:text-xl md:text-2xl ${ppColor}`}>
+            {loading && !stats ? '…' : `${pp.toFixed(2)}%`}
+          </div>
+          <div className="text-[10px] text-gray-500 sm:text-xs">Win rate</div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, delay: 0.15 }}
+          className="flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-2.5 sm:p-3"
+        >
+          <div className="text-[10px] font-medium text-gray-400 sm:text-xs">Avg Trade</div>
+          <div className={`truncate text-lg font-bold tabular-nums sm:text-xl md:text-2xl ${avgColor}`}>
+            {loading && !stats ? '…' : formatUsd(avg)}
+          </div>
+          <div className="text-[10px] text-gray-500 sm:text-xs">Per trade</div>
+        </motion.div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,48 @@
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Node / frontend
+node_modules/
+crptelix_web/node_modules/
+crptelix_web/dist/
+*.log
+npm-debug.log*
+
+# Vite
+crptelix_web/.vite/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+# Cursor / VS Code workspace (локальне вікно проєкту, шляхи часто персональні)
+*.code-workspace
+
+# Optional: local DB dumps
+*.sql
+*.dump
+
+# Local business docs (not source code)
+*.docx
+~$*
+~WRL*.tmp
+
+# One-off debug scripts (may touch keys)
+debug_key.py

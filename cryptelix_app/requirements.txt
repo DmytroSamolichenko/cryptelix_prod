@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+python-dotenv
+pandas
+openpyxl
+openai>=1.40.0
+pydantic
