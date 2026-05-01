@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 
@@ -16,7 +17,7 @@ print(
 from collections import defaultdict
 from datetime import datetime, date as date_type, time, timedelta
 from typing import Any, Dict, List
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import io
 import json
@@ -32,14 +33,24 @@ from analytics_service import get_user_financial_summary
 from ai_service import AIAnalysisError, analyze_trade_sync
 import chat_service as chat_svc
 from database import DEFAULT_USER_ID, SessionLocal, get_db
+from exchange_service import ExchangeService
 from models import ChatMessage as ChatMessageModel  # noqa: F401 — register ORM mapper
+from models import APIKey as APIKeyModel
 from models import ChatSession as ChatSessionModel
 from models import Trade as TradeModel
 from schemas import ChatSendRequest
-from schemas import TradeCreate, TradeUpdate, Trade as TradeSchema
+from schemas import (
+    ExchangeCredentialsUpsertRequest,
+    ExchangeSyncTradesRequest,
+    TradeCreate,
+    TradeUpdate,
+    Trade as TradeSchema,
+)
+from security import encrypt_data
 
 
 app = FastAPI(title="Cryptelix API", version="1.0.0")
+_SYNC_JOBS: Dict[str, Dict[str, Any]] = {}
 
 
 app.add_middleware(
@@ -51,6 +62,8 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:4173",
         "http://127.0.0.1:4173",
+        "http://100.114.17.18:5173",
+        "http://100.114.17.18:8000",
     ],
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
@@ -213,8 +226,194 @@ def _trade_to_dict(trade: TradeModel) -> Dict[str, Any]:
         "is_manual": bool(trade.is_manual),
         "exchange_trade_id": trade.exchange_trade_id,
         "exchange_name": trade.exchange_name,
+        "account_type": trade.account_type or "spot",
         "custom_fields": trade.custom_fields or {},
     }
+
+
+def _normalize_exchange_name(name: str) -> str:
+    value = (name or "").strip().lower()
+    aliases = {
+        "binance": "binance",
+    }
+    if value not in aliases:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported exchange. For now only Binance is available.",
+        )
+    return aliases[value]
+
+
+def _normalize_account_type(value: str | None) -> str:
+    account_type = (value or "spot").strip().lower()
+    allowed = {"spot"}
+    if account_type not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported account_type. For now only 'spot' is available.",
+        )
+    return account_type
+
+
+@app.post("/api/v1/exchanges/credentials")
+async def upsert_exchange_credentials(
+    payload: ExchangeCredentialsUpsertRequest,
+    db: Session = Depends(get_db),
+):
+    exchange_name = _normalize_exchange_name(payload.exchange_name)
+    encrypted_key = encrypt_data(payload.api_key.strip())
+    encrypted_secret = encrypt_data(payload.api_secret.strip())
+
+    try:
+        row: APIKeyModel | None = (
+            db.query(APIKeyModel)
+            .filter(
+                APIKeyModel.user_id == DEFAULT_USER_ID,
+                APIKeyModel.exchange_name == exchange_name,
+            )
+            .first()
+        )
+        if row is None:
+            row = APIKeyModel(
+                user_id=DEFAULT_USER_ID,
+                exchange_name=exchange_name,
+                api_key_encrypted=encrypted_key,
+                api_secret_encrypted=encrypted_secret,
+            )
+            db.add(row)
+            action = "created"
+        else:
+            row.api_key_encrypted = encrypted_key
+            row.api_secret_encrypted = encrypted_secret
+            action = "updated"
+            db.add(row)
+
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {
+        "status": "ok",
+        "action": action,
+        "exchange_name": exchange_name,
+    }
+
+
+@app.post("/api/v1/exchanges/binance/sync-trades")
+async def sync_binance_trades(
+    payload: ExchangeSyncTradesRequest,
+    db: Session = Depends(get_db),
+):
+    # Run sync as background work so browser abort/timeout won't cancel it.
+    exchange_name = "binance"
+    account_type = _normalize_account_type(payload.account_type)
+    # Validate credentials early before creating detached task.
+    cred_exists = (
+        db.query(APIKeyModel)
+        .filter(
+            APIKeyModel.user_id == DEFAULT_USER_ID,
+            APIKeyModel.exchange_name == exchange_name,
+        )
+        .first()
+    )
+    if cred_exists is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No API credentials found for exchange '{exchange_name}'.",
+        )
+
+    job_id = str(uuid4())
+    _SYNC_JOBS[job_id] = {
+        "status": "queued",
+        "exchange_name": exchange_name,
+        "account_type": account_type,
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "synced_count": 0,
+        "error": None,
+    }
+    asyncio.create_task(
+        _run_binance_sync_job(
+            job_id=job_id,
+            exchange_name=exchange_name,
+            account_type=account_type,
+            since=payload.since,
+            limit=payload.limit,
+        )
+    )
+    return {
+        "status": "accepted",
+        "job_id": job_id,
+        "exchange_name": exchange_name,
+        "account_type": account_type,
+    }
+
+
+@app.get("/api/v1/exchanges/binance/sync-trades/{job_id}")
+async def get_binance_sync_status(job_id: str):
+    job = _SYNC_JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Sync job not found")
+    return job
+
+
+async def _run_binance_sync_job(
+    job_id: str,
+    exchange_name: str,
+    account_type: str,
+    since: int | None,
+    limit: int,
+) -> None:
+    db = SessionLocal()
+    service: ExchangeService | None = None
+    try:
+        _SYNC_JOBS[job_id]["status"] = "running"
+        before_count = (
+            db.query(TradeModel)
+            .filter(
+                TradeModel.user_id == DEFAULT_USER_ID,
+                TradeModel.exchange_name == exchange_name,
+            )
+            .count()
+        )
+        service = ExchangeService.from_db_credentials(exchange_name, db)
+        synced = await service.fetch_and_sync_all_trades(
+            since=since,
+            limit_per_request=limit,
+            account_type=account_type,
+        )
+        after_count = (
+            db.query(TradeModel)
+            .filter(
+                TradeModel.user_id == DEFAULT_USER_ID,
+                TradeModel.exchange_name == exchange_name,
+            )
+            .count()
+        )
+        _SYNC_JOBS[job_id].update(
+            {
+                "status": "done",
+                "synced_count": len(synced),
+                "new_since_request": max(after_count - before_count, 0),
+                "total_exchange_trades_for_user": after_count,
+                "finished_at": datetime.utcnow().isoformat() + "Z",
+            }
+        )
+    except Exception as exc:
+        _SYNC_JOBS[job_id].update(
+            {
+                "status": "failed",
+                "error": str(exc),
+                "finished_at": datetime.utcnow().isoformat() + "Z",
+            }
+        )
+    finally:
+        if service is not None:
+            try:
+                await service.close()
+            except Exception:
+                pass
+        db.close()
 
 
 @app.get("/api/v1/trades")

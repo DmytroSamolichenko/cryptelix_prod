@@ -53,9 +53,12 @@ const brokers = [
 ];
 
 export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBrokerModalProps) {
+  const API_BASE = 'http://localhost:8000';
   const [selectedBroker, setSelectedBroker] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -63,18 +66,96 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
     setSelectedBroker(brokerName);
   };
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     if (!selectedBroker || !apiKey || !apiSecret) return;
-    
-    // Simulate API connection
-    console.log(`Connecting to ${selectedBroker}...`);
-    setTimeout(() => {
+    if (selectedBroker !== 'Binance') {
+      setStatusMessage('Зараз доступне лише підключення Binance.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setStatusMessage('Зберігаю API ключі...');
+    try {
+      const credentialsRes = await fetch(`${API_BASE}/api/v1/exchanges/credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          exchange_name: 'binance',
+          api_key: apiKey.trim(),
+          api_secret: apiSecret.trim(),
+        }),
+      });
+      if (!credentialsRes.ok) {
+        const errorBody = await credentialsRes.text();
+        throw new Error(errorBody || 'Failed to save exchange credentials');
+      }
+
+      // Do not block UX on full-history sync: save credentials immediately,
+      // then start sync in the background.
+      void triggerBackgroundSync();
+      setStatusMessage('Ключ збережено. Синхронізацію історії запущено у фоні.');
       onConnect();
-      onClose();
       setSelectedBroker(null);
       setApiKey('');
       setApiSecret('');
-    }, 1000);
+      setTimeout(() => onClose(), 500);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Connection failed';
+      setStatusMessage(`Помилка: ${message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const triggerBackgroundSync = async () => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 45000);
+    try {
+      const syncRes = await fetch(`${API_BASE}/api/v1/exchanges/binance/sync-trades`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          limit: 200,
+          account_type: 'spot',
+        }),
+        signal: controller.signal,
+      });
+      if (!syncRes.ok) {
+        const body = await syncRes.text();
+        console.warn('Binance sync failed:', body || syncRes.statusText);
+        return;
+      }
+      const payload = await syncRes.json();
+      const jobId = payload?.job_id as string | undefined;
+      if (!jobId) return;
+      void pollSyncStatus(jobId);
+    } catch (error) {
+      console.warn('Binance sync request failed:', error);
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  };
+
+  const pollSyncStatus = async (jobId: string) => {
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/exchanges/binance/sync-trades/${encodeURIComponent(jobId)}`);
+        if (!res.ok) continue;
+        const job = await res.json();
+        if (job.status === 'done') {
+          setStatusMessage(`Синхронізація завершена. Імпортовано угод: ${job.synced_count ?? 0}.`);
+          return;
+        }
+        if (job.status === 'failed') {
+          setStatusMessage(`Синхронізація завершилась помилкою: ${job.error ?? 'невідома помилка'}`);
+          return;
+        }
+      } catch {
+        // transient polling error, continue
+      }
+    }
+    setStatusMessage('Синхронізація все ще виконується у фоні.');
   };
 
   return (
@@ -243,11 +324,15 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
                   {/* Connect Button */}
                   <button
                     onClick={handleConnect}
-                    disabled={!apiKey || !apiSecret}
+                    disabled={!apiKey || !apiSecret || isSubmitting}
                     className="w-full px-6 py-3 bg-yellow-500 hover:bg-yellow-600 disabled:bg-zinc-700 disabled:text-gray-500 text-black font-semibold rounded-lg transition-all disabled:cursor-not-allowed shadow-lg shadow-yellow-500/20 disabled:shadow-none"
                   >
-                    Connect {selectedBroker}
+                    {isSubmitting ? 'Connecting...' : `Connect ${selectedBroker}`}
                   </button>
+
+                  {statusMessage && (
+                    <p className="text-xs text-gray-300">{statusMessage}</p>
+                  )}
 
                   {/* Help Link */}
                   <a

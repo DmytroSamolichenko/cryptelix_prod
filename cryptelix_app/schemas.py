@@ -20,6 +20,7 @@ class TradeBase(BaseModel):
     custom_fields: dict = {}
     exchange_trade_id: str
     exchange_name: str
+    account_type: str = "spot"
 
 
 class TradeCreate(TradeBase):
@@ -65,6 +66,22 @@ class APIKey(APIKeyBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+
+
+class ExchangeCredentialsUpsertRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    exchange_name: str
+    api_key: str = Field(..., min_length=1, max_length=512)
+    api_secret: str = Field(..., min_length=1, max_length=512)
+
+
+class ExchangeSyncTradesRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    limit: int = Field(default=100, ge=1, le=1000)
+    since: int | None = Field(default=None, ge=0)
+    account_type: str = Field(default="spot", min_length=3, max_length=20)
 
 
 class ChatSendRequest(BaseModel):

@@ -7,3 +7,4 @@ pandas
 openpyxl
 openai>=1.40.0
 pydantic
+ccxt

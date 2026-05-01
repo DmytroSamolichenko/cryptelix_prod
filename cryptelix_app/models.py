@@ -35,6 +35,8 @@ class Trade(Base):
     exchange_trade_id = Column(String(128), unique=True, index=True, nullable=True)
     # Short exchange identifier, e.g. "binance"
     exchange_name = Column(String(50), nullable=True)
+    # Account domain on exchange: spot/futures (MVP currently uses spot)
+    account_type = Column(String(20), nullable=False, default="spot")
     date = Column(DateTime, nullable=False)
     # Timestamp when the trade was fully closed/executed; used for period filtering
     closed_at = Column(DateTime, nullable=True, index=True)

@@ -33,6 +33,11 @@ class ExchangeService:
                 "apiKey": api_key,
                 "secret": api_secret,
                 "enableRateLimit": True,
+                # Binance signed endpoints are sensitive to local clock drift.
+                "options": {
+                    "adjustForTimeDifference": True,
+                    "recvWindow": 15000,
+                },
             }
         )
 
@@ -61,7 +66,7 @@ class ExchangeService:
         decrypted_secret = decrypt_data(api_key_row.api_secret_encrypted)
 
         # Map human-friendly name to ccxt id (simple normalization for MVP).
-        exchange_id = exchange_name.lower()
+        exchange_id = exchange_name.strip().lower()
 
         return cls(
             exchange_id=exchange_id,
@@ -73,11 +78,50 @@ class ExchangeService:
     async def close(self) -> None:
         await self.client.close()
 
+    async def _prepare_client_time(self) -> None:
+        """
+        Pre-sync local/client time with exchange server time.
+        Helps avoid Binance -1021 timestamp drift errors.
+        """
+        try:
+            await self.client.load_time_difference()
+        except Exception:
+            # Non-fatal: keep going with adjustForTimeDifference option.
+            pass
+
+    @staticmethod
+    def _is_timestamp_error(exc: Exception) -> bool:
+        text = str(exc)
+        return "-1021" in text or "Timestamp for this request" in text
+
+    async def _fetch_my_trades_with_retry(
+        self,
+        symbol: str | None,
+        since: Optional[int],
+        limit: int,
+    ):
+        try:
+            return await self.client.fetch_my_trades(
+                symbol=symbol,
+                since=since,
+                limit=limit,
+            )
+        except Exception as exc:
+            if not self._is_timestamp_error(exc):
+                raise
+            await self._prepare_client_time()
+            return await self.client.fetch_my_trades(
+                symbol=symbol,
+                since=since,
+                limit=limit,
+            )
+
     async def fetch_and_sync_trades(
         self,
         symbol: str,
         since: Optional[int] = None,
         limit: int = 100,
+        account_type: str = "spot",
     ) -> List[Trade]:
         """
         Fetch recent trades from the exchange and synchronize them into the database.
@@ -86,9 +130,10 @@ class ExchangeService:
         - Deduplicates by exchange_trade_id to avoid double-counting.
         """
         await self.client.load_markets()
+        await self._prepare_client_time()
 
         try:
-            trades = await self.client.fetch_my_trades(
+            trades = await self._fetch_my_trades_with_retry(
                 symbol=symbol,
                 since=since,
                 limit=limit,
@@ -104,15 +149,108 @@ class ExchangeService:
                 f"Network error while communicating with {self.exchange_id}."
             ) from exc
 
-        synced_trades: List[Trade] = []
+        synced_trades = self._upsert_trades_from_ccxt(
+            trades=trades,
+            fallback_symbol=symbol,
+            account_type=account_type,
+        )
 
-        for t in trades:
-            exchange_trade_id = str(t.get("id"))
-            if not exchange_trade_id:
-                # If the exchange doesn't supply an id, skip to avoid bad dedup logic.
+        if synced_trades:
+            self.db.commit()
+
+        return synced_trades
+
+    async def fetch_and_sync_all_trades(
+        self,
+        since: Optional[int] = None,
+        limit_per_request: int = 100,
+        account_type: str = "spot",
+    ) -> List[Trade]:
+        """
+        Sync all available user trades for the selected account type.
+
+        For exchanges that support fetch_my_trades without symbol, use one request.
+        For exchanges requiring symbol (Binance spot), fallback to per-market requests.
+        """
+        await self.client.load_markets()
+        await self._prepare_client_time()
+        synced_all: List[Trade] = []
+
+        # Attempt global fetch first (works on some exchanges).
+        try:
+            trades = await self._fetch_my_trades_with_retry(
+                symbol=None,
+                since=since,
+                limit=limit_per_request,
+            )
+            synced_all.extend(
+                self._upsert_trades_from_ccxt(
+                    trades=trades,
+                    fallback_symbol=None,
+                    account_type=account_type,
+                )
+            )
+            if synced_all:
+                self.db.commit()
+            return synced_all
+        except Exception:
+            # Fallback path for exchanges that require symbol.
+            pass
+
+        # Binance spot fallback: iterate active spot symbols.
+        markets = self.client.markets or {}
+        symbols = []
+        for market_symbol, market in markets.items():
+            if not market_symbol or not isinstance(market, dict):
+                continue
+            if not market.get("active", True):
+                continue
+            if not market.get("spot", False):
+                continue
+            symbols.append(market_symbol)
+
+        for market_symbol in symbols:
+            try:
+                trades = await self._fetch_my_trades_with_retry(
+                    symbol=market_symbol,
+                    since=since,
+                    limit=limit_per_request,
+                )
+            except ccxt.BaseError:
+                # Skip symbols that fail due to permissions/product restrictions.
                 continue
 
-            # Duplicate check
+            synced_all.extend(
+                self._upsert_trades_from_ccxt(
+                    trades=trades,
+                    fallback_symbol=market_symbol,
+                    account_type=account_type,
+                )
+            )
+
+        if synced_all:
+            self.db.commit()
+        return synced_all
+
+    def _upsert_trades_from_ccxt(
+        self,
+        trades: List[dict],
+        fallback_symbol: str | None,
+        account_type: str,
+    ) -> List[Trade]:
+        synced_trades: List[Trade] = []
+        seen_batch_ids: set[str] = set()
+        for t in trades:
+            raw_id = t.get("id")
+            if raw_id is None:
+                continue
+            exchange_trade_id = str(raw_id).strip()
+            if not exchange_trade_id:
+                continue
+            if exchange_trade_id in seen_batch_ids:
+                continue
+            seen_batch_ids.add(exchange_trade_id)
+
             existing = (
                 self.db.query(Trade)
                 .filter(
@@ -130,20 +268,16 @@ class ExchangeService:
                 if timestamp is not None
                 else datetime.now(tz=timezone.utc)
             )
-
             side = (t.get("side") or "").capitalize() or "Long"
             price = Decimal(str(t.get("price") or 0))
             amount = Decimal(str(t.get("amount") or 0))
-
             fee_info = t.get("fee") or {}
             fee_cost = fee_info.get("cost")
-            commission = (
-                Decimal(str(fee_cost)) if fee_cost is not None else Decimal("0")
-            )
+            commission = Decimal(str(fee_cost)) if fee_cost is not None else Decimal("0")
 
             trade_obj = Trade(
                 date=dt,
-                pair=t.get("symbol") or symbol,
+                pair=t.get("symbol") or fallback_symbol or "UNKNOWN",
                 side=side,
                 entry_price=price,
                 exit_price=None,
@@ -153,15 +287,11 @@ class ExchangeService:
                 notes=None,
                 exchange_trade_id=exchange_trade_id,
                 exchange_name=self.exchange_id,
+                account_type=account_type,
                 user_id=DEFAULT_USER_ID,  # TODO: MULTI-USER-MIGRATION
             )
-
             self.db.add(trade_obj)
             synced_trades.append(trade_obj)
-
-        if synced_trades:
-            self.db.commit()
-
         return synced_trades
 
 
