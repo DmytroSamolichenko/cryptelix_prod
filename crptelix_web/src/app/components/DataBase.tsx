@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Download, Upload, X, Loader2 } from 'lucide-react';
 import { AddTradeModal } from './AddTradeModal';
 import { AddColumnModal } from './AddColumnModal';
+import { SideToggle } from './SideToggle';
+import { DealBaseSummaryBar } from './DealBaseSummaryBar';
 import { formatNumber } from './ui/utils';
 
 type ColumnType = 'text' | 'number' | 'percentage';
@@ -43,6 +45,23 @@ function isAiReportEmpty(value: unknown): boolean {
 function hasExchangeTradeId(deal: Deal): boolean {
   const e = deal.exchangeTradeId;
   return e != null && String(e).trim() !== '';
+}
+
+function normalizeDateDisplay(raw: unknown): string {
+  const value = String(raw ?? '').trim();
+  if (!value) return '';
+
+  // Already ISO-like date
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+  // dd.mm.yyyy -> yyyy-mm-dd (visual normalization only)
+  const dotMatch = value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (dotMatch) {
+    const [, dd, mm, yyyy] = dotMatch;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  return value;
 }
 
 /** API / system trades: lock all columns except notes when not manual */
@@ -284,7 +303,7 @@ interface Sheet {
 export function DataBase() {
   const [sheet, setSheet] = useState<Sheet>({
     id: 'sheet-1',
-    name: 'Bank of transactions',
+    name: 'Deal Base',
     columns: [
       { id: 'date', name: 'Date', type: 'text', width: 150 },
       { id: 'pair', name: 'Pair', type: 'text', width: 140 },
@@ -319,6 +338,7 @@ export function DataBase() {
   const [aiAnalyzeBusy, setAiAnalyzeBusy] = useState<Record<string, boolean>>({});
   const [aiAnalyzeError, setAiAnalyzeError] = useState<Record<string, boolean>>({});
   const [aiInsightsExpanded, setAiInsightsExpanded] = useState<Record<string, boolean>>({});
+  const [activeDateEditor, setActiveDateEditor] = useState<string | null>(null);
 
   const handleAnalyzeAi = useCallback(async (dealId: string) => {
     if (!isPersistedTradeId(dealId)) return;
@@ -622,7 +642,7 @@ export function DataBase() {
 
   const getCellClassName = (value: string, type: ColumnType) => {
     const baseClass =
-      'w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-yellow-500/50 rounded px-2 py-1';
+      'w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-yellow-500/50 rounded px-2 py-1 font-semibold';
 
     let alignClass = 'text-left';
     let colorClass = 'text-gray-300';
@@ -699,11 +719,9 @@ export function DataBase() {
 
   return (
     <div className="h-full flex flex-col bg-black">
-      {/* Header Title */}
-      <div className="border-b border-zinc-800/50 bg-zinc-950/50 flex items-center px-4 py-3">
-        <h2 className="text-sm font-semibold text-yellow-400">
-          {sheet.name}
-        </h2>
+      {/* Summary aggregates */}
+      <div className="border-b border-zinc-800/50 bg-zinc-950/50 px-4 py-2.5 overflow-hidden">
+        <DealBaseSummaryBar deals={sheet.deals} />
       </div>
 
       {/* Toolbar */}
@@ -764,13 +782,13 @@ export function DataBase() {
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm font-medium">
           <thead className="sticky top-0 bg-zinc-900/90 backdrop-blur-sm border-b border-zinc-800">
             <tr>
               {activeSheet?.columns.map((column) => (
                 <th
                   key={column.id}
-                  className="px-0 py-0 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider"
+                  className="px-0 py-0 text-left text-xs font-bold text-gray-400 uppercase tracking-wider"
                   style={{
                     width: column.width,
                     minWidth: column.id === 'type' ? 120 : 80,
@@ -913,8 +931,8 @@ export function DataBase() {
                         }
 
                         return (
-                          <div className="w-full min-w-0 px-2 py-1 text-left text-sm text-gray-300" title={raw}>
-                            <p className="whitespace-pre-wrap break-words text-gray-300">
+                          <div className="w-full min-w-0 px-2 py-1 text-left text-sm font-medium text-gray-300" title={raw}>
+                            <p className="whitespace-pre-wrap break-words font-medium text-gray-300">
                               {shown}
                             </p>
                             {longText && (
@@ -935,35 +953,54 @@ export function DataBase() {
                         );
                       })()
                     ) : isCellLocked(deal, column.id) ? (
-                      <div className={getCellClassName(String(deal[column.id] ?? ''), column.type)}>
-                        {String(deal[column.id] ?? '')}
-                      </div>
+                      column.id === 'type' ? (
+                        <div className="px-1 py-1">
+                          <SideToggle value={String(deal.type || 'Long')} disabled />
+                        </div>
+                      ) : column.id === 'date' ? (
+                        <div className={getCellClassName(normalizeDateDisplay(deal[column.id] || ''), column.type)}>
+                          {normalizeDateDisplay(deal[column.id] || '')}
+                        </div>
+                      ) : (
+                        <div className={getCellClassName(String(deal[column.id] ?? ''), column.type)}>
+                          {String(deal[column.id] ?? '')}
+                        </div>
+                      )
                     ) : column.id === 'type' ? (
-                      <select
-                        value={deal.type || 'Long'}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          updateDeal(deal.id, column.id, v);
-                          const next = { ...deal, type: v };
-                          void syncDealFieldToApi(next, 'type', v);
-                        }}
-                        className="w-full bg-zinc-900 text-gray-300 border-none focus:outline-none focus:ring-1 focus:ring-yellow-500/50 rounded px-2 py-1"
-                      >
-                        <option value="Long">Long</option>
-                        <option value="Short">Short</option>
-                      </select>
+                      <div className="px-1 py-1">
+                        <SideToggle
+                          value={String(deal.type || 'Long')}
+                          onChange={(v) => {
+                            updateDeal(deal.id, column.id, v);
+                            const next = { ...deal, type: v };
+                            void syncDealFieldToApi(next, 'type', v);
+                          }}
+                        />
+                      </div>
                     ) : column.id === 'date' ? (
-                      <input
-                        type="date"
-                        value={deal[column.id] || ''}
-                        onChange={(e) => updateDeal(deal.id, column.id, e.target.value)}
-                        onBlur={(e) => {
-                          const v = e.currentTarget.value;
-                          const next = { ...deal, date: v };
-                          void syncDealFieldToApi(next, 'date', v);
-                        }}
-                        className={getCellClassName(deal[column.id] || '', column.type)}
-                      />
+                      <div className="relative">
+                        <input
+                          type="date"
+                          value={normalizeDateDisplay(deal[column.id] || '')}
+                          lang="en-CA"
+                          onFocus={() => setActiveDateEditor(deal.id)}
+                          onChange={(e) => updateDeal(deal.id, column.id, e.target.value)}
+                          onBlur={(e) => {
+                            const v = e.currentTarget.value;
+                            const next = { ...deal, date: v };
+                            void syncDealFieldToApi(next, 'date', v);
+                            setActiveDateEditor((prev) => (prev === deal.id ? null : prev));
+                          }}
+                          className={`${getCellClassName(deal[column.id] || '', column.type)} ${
+                            activeDateEditor === deal.id ? '' : 'text-transparent'
+                          }`}
+                        />
+                        {activeDateEditor !== deal.id && (
+                          <span className="pointer-events-none absolute inset-0 flex items-center px-2 text-gray-300">
+                            {normalizeDateDisplay(deal[column.id] || '')}
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <input
                         type="text"

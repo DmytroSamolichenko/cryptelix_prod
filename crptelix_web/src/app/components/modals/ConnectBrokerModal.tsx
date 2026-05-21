@@ -1,5 +1,6 @@
 import { X, TrendingUp, Shield, BarChart3, ExternalLink, Lock, CheckCircle2 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { cn } from '../ui/utils';
 
 interface ConnectBrokerModalProps {
   isOpen: boolean;
@@ -10,43 +11,55 @@ interface ConnectBrokerModalProps {
 const brokers = [
   {
     name: 'Interactive Brokers',
+    exchangeId: null,
     description: 'Professional trading platform with global access',
-    logo: '📊',
+    logoUrl: '/broker-logos/interactive-brokers.png',
+    logoFallback: 'IB',
     features: ['Stocks', 'Options', 'Futures', 'Forex'],
     popular: true,
   },
   {
     name: 'TD Ameritrade',
+    exchangeId: null,
     description: 'Comprehensive trading and research platform',
-    logo: '🎯',
+    logoUrl: '/broker-logos/td-ameritrade.png',
+    logoFallback: 'TD',
     features: ['Stocks', 'ETFs', 'Options', 'Crypto'],
     popular: true,
   },
   {
     name: 'Binance',
+    exchangeId: 'binance',
     description: 'Leading cryptocurrency exchange',
-    logo: '🔶',
+    logoUrl: '/broker-logos/binance.png',
+    logoFallback: 'BN',
     features: ['Spot', 'Futures', 'Margin', 'Staking'],
     popular: true,
   },
   {
     name: 'Coinbase Pro',
+    exchangeId: 'coinbase',
     description: 'Advanced crypto trading platform',
-    logo: '💠',
+    logoUrl: '/broker-logos/coinbase.png',
+    logoFallback: 'CB',
     features: ['Crypto', 'Advanced Orders', 'API Trading'],
     popular: false,
   },
   {
     name: 'Kraken',
+    exchangeId: 'kraken',
     description: 'Secure cryptocurrency exchange',
-    logo: '🦑',
+    logoUrl: '/broker-logos/kraken.png',
+    logoFallback: 'KR',
     features: ['Spot', 'Futures', 'Staking', 'NFTs'],
     popular: false,
   },
   {
     name: 'Alpaca',
+    exchangeId: 'alpaca',
     description: 'Commission-free API trading',
-    logo: '🦙',
+    logoUrl: '/broker-logos/alpaca.png',
+    logoFallback: 'AL',
     features: ['Stocks', 'API', 'Algo Trading', 'Paper Trading'],
     popular: false,
   },
@@ -55,19 +68,41 @@ const brokers = [
 export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBrokerModalProps) {
   const API_BASE = 'http://localhost:8000';
   const [selectedBroker, setSelectedBroker] = useState<string | null>(null);
-  const [apiKey, setApiKey] = useState('');
-  const [apiSecret, setApiSecret] = useState('');
+  const [credentialsByBroker, setCredentialsByBroker] = useState<
+    Record<string, { apiKey: string; apiSecret: string }>
+  >({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [connectedExchangeIds, setConnectedExchangeIds] = useState<Set<string>>(new Set());
+
+  const fetchConnectedExchanges = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/exchanges/credentials/status`);
+      if (!res.ok) return;
+      const payload = (await res.json()) as { connected_exchanges?: string[] };
+      const ids = (payload.connected_exchanges ?? []).map((id) => id.trim().toLowerCase());
+      setConnectedExchangeIds(new Set(ids));
+    } catch {
+      setConnectedExchangeIds(new Set());
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) void fetchConnectedExchanges();
+  }, [isOpen, fetchConnectedExchanges]);
 
   if (!isOpen) return null;
 
   const handleBrokerSelect = (brokerName: string) => {
     setSelectedBroker(brokerName);
+    setStatusMessage(null);
   };
 
   const handleConnect = async () => {
-    if (!selectedBroker || !apiKey || !apiSecret) return;
+    if (!selectedBroker) return;
+    const currentCredentials = credentialsByBroker[selectedBroker] ?? { apiKey: '', apiSecret: '' };
+    const { apiKey, apiSecret } = currentCredentials;
+    if (!apiKey || !apiSecret) return;
     if (selectedBroker !== 'Binance') {
       setStatusMessage('Зараз доступне лише підключення Binance.');
       return;
@@ -94,10 +129,9 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
       // then start sync in the background.
       void triggerBackgroundSync();
       setStatusMessage('Ключ збережено. Синхронізацію історії запущено у фоні.');
+      await fetchConnectedExchanges();
       onConnect();
       setSelectedBroker(null);
-      setApiKey('');
-      setApiSecret('');
       setTimeout(() => onClose(), 500);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Connection failed';
@@ -158,6 +192,10 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
     setStatusMessage('Синхронізація все ще виконується у фоні.');
   };
 
+  const selectedCredentials = selectedBroker
+    ? (credentialsByBroker[selectedBroker] ?? { apiKey: '', apiSecret: '' })
+    : { apiKey: '', apiSecret: '' };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
@@ -197,24 +235,41 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
                 Select Your Broker
               </h3>
               <div className="space-y-2">
-                {brokers.map((broker) => (
+                {brokers.map((broker) => {
+                  const isConnected =
+                    broker.exchangeId != null &&
+                    connectedExchangeIds.has(broker.exchangeId);
+                  const isSelected = selectedBroker === broker.name;
+
+                  return (
                   <button
                     key={broker.name}
                     onClick={() => handleBrokerSelect(broker.name)}
-                    className={`relative group w-full p-4 rounded-xl border transition-all text-left ${
-                      selectedBroker === broker.name
-                        ? 'bg-yellow-500/10 border-yellow-500/50'
-                        : 'bg-zinc-800/50 border-zinc-700/50 hover:bg-zinc-800 hover:border-yellow-500/30'
-                    }`}
+                    className={cn(
+                      'relative group w-full p-4 rounded-xl border transition-all text-left',
+                      isConnected
+                        ? 'bg-green-500/10 border-green-500/50 shadow-[0_0_18px_rgba(34,197,94,0.12)]'
+                        : isSelected
+                          ? 'bg-yellow-500/10 border-yellow-500/50'
+                          : 'bg-zinc-800/50 border-zinc-700/50 hover:bg-zinc-800 hover:border-yellow-500/30'
+                    )}
                   >
-                    <div className="flex items-start gap-3">
-                      {/* Logo */}
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl border transition-colors ${
-                        selectedBroker === broker.name
-                          ? 'bg-yellow-500/20 border-yellow-500/50'
-                          : 'bg-zinc-900 border-zinc-700'
-                      }`}>
-                        {broker.logo}
+                    <div className="flex items-center gap-4">
+                      <div className="h-14 w-14 shrink-0 flex items-center justify-center">
+                        <img
+                          src={broker.logoUrl}
+                          alt={`${broker.name} logo`}
+                          className="h-14 w-14 object-contain"
+                          loading="lazy"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                            const fallback = e.currentTarget.nextElementSibling as HTMLSpanElement | null;
+                            if (fallback) fallback.style.display = 'flex';
+                          }}
+                        />
+                        <span className="hidden h-14 w-14 items-center justify-center rounded-lg bg-zinc-800 text-sm font-bold text-zinc-300">
+                          {broker.logoFallback}
+                        </span>
                       </div>
                       
                       {/* Info */}
@@ -226,8 +281,16 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
                               Popular
                             </span>
                           )}
-                          {selectedBroker === broker.name && (
+                          {isConnected && (
+                            <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-xs font-medium rounded border border-green-500/40">
+                              Connected
+                            </span>
+                          )}
+                          {isSelected && !isConnected && (
                             <CheckCircle2 className="w-4 h-4 text-yellow-500 ml-auto" />
+                          )}
+                          {isConnected && (
+                            <CheckCircle2 className="w-4 h-4 text-green-400 ml-auto shrink-0" />
                           )}
                         </div>
                         <p className="text-xs text-gray-400 mb-2">{broker.description}</p>
@@ -244,7 +307,8 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
                       </div>
                     </div>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -279,8 +343,17 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
                     </label>
                     <input
                       type="text"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
+                      value={selectedCredentials.apiKey}
+                      onChange={(e) =>
+                        selectedBroker &&
+                        setCredentialsByBroker((prev) => ({
+                          ...prev,
+                          [selectedBroker]: {
+                            ...(prev[selectedBroker] ?? { apiKey: '', apiSecret: '' }),
+                            apiKey: e.target.value,
+                          },
+                        }))
+                      }
                       placeholder="Enter your API key"
                       className="w-full px-4 py-3 bg-zinc-800/50 border border-zinc-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500/50 focus:ring-1 focus:ring-yellow-500/50 transition-colors"
                     />
@@ -293,8 +366,17 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
                     </label>
                     <input
                       type="password"
-                      value={apiSecret}
-                      onChange={(e) => setApiSecret(e.target.value)}
+                      value={selectedCredentials.apiSecret}
+                      onChange={(e) =>
+                        selectedBroker &&
+                        setCredentialsByBroker((prev) => ({
+                          ...prev,
+                          [selectedBroker]: {
+                            ...(prev[selectedBroker] ?? { apiKey: '', apiSecret: '' }),
+                            apiSecret: e.target.value,
+                          },
+                        }))
+                      }
                       placeholder="Enter your API secret"
                       className="w-full px-4 py-3 bg-zinc-800/50 border border-zinc-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500/50 focus:ring-1 focus:ring-yellow-500/50 transition-colors"
                     />
@@ -324,7 +406,7 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
                   {/* Connect Button */}
                   <button
                     onClick={handleConnect}
-                    disabled={!apiKey || !apiSecret || isSubmitting}
+                    disabled={!selectedCredentials.apiKey || !selectedCredentials.apiSecret || isSubmitting}
                     className="w-full px-6 py-3 bg-yellow-500 hover:bg-yellow-600 disabled:bg-zinc-700 disabled:text-gray-500 text-black font-semibold rounded-lg transition-all disabled:cursor-not-allowed shadow-lg shadow-yellow-500/20 disabled:shadow-none"
                   >
                     {isSubmitting ? 'Connecting...' : `Connect ${selectedBroker}`}

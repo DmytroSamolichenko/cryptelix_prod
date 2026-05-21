@@ -2,9 +2,11 @@ import { useRef, useEffect, useState } from 'react';
 
 interface DrawingCanvasProps {
   isActive: boolean;
+  /** Viewport element (visible scroll area), not the full world surface */
+  viewportRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-export function DrawingCanvas({ isActive }: DrawingCanvasProps) {
+export function DrawingCanvas({ isActive, viewportRef }: DrawingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [context, setContext] = useState<CanvasRenderingContext2D | null>(null);
@@ -16,22 +18,31 @@ export function DrawingCanvas({ isActive }: DrawingCanvasProps) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Set canvas size to match container
     const updateCanvasSize = () => {
-      const parent = canvas.parentElement;
+      const parent = viewportRef?.current ?? canvas.parentElement;
       if (!parent) return;
-      
-      // Store the current canvas content before resizing
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      
-      canvas.width = parent.offsetWidth;
-      canvas.height = parent.offsetHeight;
-      
-      // Restore the previous content after resizing
-      ctx.putImageData(imageData, 0, 0);
+
+      const w = parent.clientWidth;
+      const h = parent.clientHeight;
+      if (w <= 0 || h <= 0) return;
+
+      const imageData =
+        canvas.width > 0 && canvas.height > 0
+          ? ctx.getImageData(0, 0, canvas.width, canvas.height)
+          : null;
+
+      canvas.width = w;
+      canvas.height = h;
+
+      if (imageData) {
+        ctx.putImageData(imageData, 0, 0);
+      }
     };
 
     updateCanvasSize();
+    const parent = viewportRef?.current ?? canvas.parentElement;
+    const ro = parent ? new ResizeObserver(updateCanvasSize) : null;
+    ro?.observe(parent);
     window.addEventListener('resize', updateCanvasSize);
 
     // Configure drawing settings for white brush
@@ -44,9 +55,10 @@ export function DrawingCanvas({ isActive }: DrawingCanvasProps) {
     setContext(ctx);
 
     return () => {
+      ro?.disconnect();
       window.removeEventListener('resize', updateCanvasSize);
     };
-  }, []);
+  }, [viewportRef]);
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!context || !isActive) return;
@@ -84,8 +96,8 @@ export function DrawingCanvas({ isActive }: DrawingCanvasProps) {
       onMouseMove={draw}
       onMouseUp={stopDrawing}
       onMouseLeave={stopDrawing}
-      className="absolute inset-0 z-40 cursor-crosshair"
-      style={{ pointerEvents: isActive ? 'auto' : 'none' }}
+      className="pointer-events-none absolute inset-0 z-40"
+      style={{ pointerEvents: isActive ? 'auto' : 'none', cursor: isActive ? 'crosshair' : 'default' }}
     />
   );
 }

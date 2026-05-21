@@ -3,7 +3,7 @@ import { Widget } from './DashboardWidget';
 import { WidgetType } from './DashboardWidget';
 import { FlexibleWidget } from './FlexibleWidget';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   AreaChart,
@@ -17,7 +17,7 @@ import {
 import { KeyMetricsCards } from './TradingMetrics';
 import { FtrReportTable } from './FtrReportTable';
 import { DrawingCanvas } from './DrawingCanvas';
-import { AutoResizeTextarea } from './AutoResizeTextarea';
+import { CanvasTextWidget, type CanvasTextData } from './CanvasTextWidget';
 import { PortfolioWidget } from './PortfolioWidget';
 import { WvlWidget } from './WvlWidget';
 
@@ -27,6 +27,7 @@ interface DashboardCanvasProps {
   onRemoveWidget: (id: string) => void;
   onUpdateWidgetPosition: (id: string, position: { x: number; y: number }) => void;
   onUpdateWidgetSize: (id: string, size: { width: number; height: number }) => void;
+  onUpdateWidgetData: (id: string, data: Record<string, unknown>) => void;
   isWidgetsOpen: boolean;
   isBrushActive: boolean;
 }
@@ -63,6 +64,10 @@ function formatMonthAxisLabel(iso: string): string {
   const dt = new Date(y, m - 1, 1);
   return dt.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
+
+/** Workspace plane — scroll/pan in any direction (middle mouse, right mouse, or Space + drag) */
+const WORLD_SIZE = 10000;
+const WORLD_ORIGIN = WORLD_SIZE / 2;
 
 type ProfitTrendTimeScale = 'trades' | 'days' | 'weeks' | 'months';
 
@@ -157,7 +162,7 @@ function ProfitTrendWidget() {
   const { minY, maxY, zeroOffsetPct } = useMemo(() => profitTrendYRange(data), [data]);
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col [contain:layout]">
       <div className="mb-2 flex shrink-0 flex-wrap gap-1">
         {PROFIT_TREND_TIME_SCALE_BUTTONS.map(({ key, label }) => (
           <button
@@ -233,20 +238,195 @@ function ProfitTrendWidget() {
   );
 }
 
+const DEFAULT_TEXT_FONT_SIZE = 24;
+
 export function DashboardCanvas({ 
   widgets, 
   onAddWidget, 
   onRemoveWidget, 
   onUpdateWidgetPosition, 
   onUpdateWidgetSize,
+  onUpdateWidgetData,
   isWidgetsOpen,
   isBrushActive
 }: DashboardCanvasProps) {
   const [zoom, setZoom] = useState(1);
+  const [isPanning, setIsPanning] = useState(false);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
+  const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
+  const knownTextWidgetIdsRef = useRef(new Set<string>());
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const hasCenteredScrollRef = useRef(false);
+  const panStateRef = useRef<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    startScrollLeft: number;
+    startScrollTop: number;
+  }>({
+    active: false,
+    startX: 0,
+    startY: 0,
+    startScrollLeft: 0,
+    startScrollTop: 0,
+  });
+
+  const centerViewportOnOrigin = (zoomLevel: number) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const targetLeft = WORLD_ORIGIN * zoomLevel - container.clientWidth / 2;
+    const targetTop = WORLD_ORIGIN * zoomLevel - container.clientHeight / 2;
+    container.scrollLeft = Math.max(0, targetLeft);
+    container.scrollTop = Math.max(0, targetTop);
+  };
+
+  useEffect(() => {
+    if (hasCenteredScrollRef.current) return;
+    const id = requestAnimationFrame(() => {
+      const container = scrollContainerRef.current;
+      if (!container || container.clientWidth === 0) return;
+      centerViewportOnOrigin(zoom);
+      hasCenteredScrollRef.current = true;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [zoom]);
 
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 0.25, 3));
   const handleZoomOut = () => setZoom((prev) => Math.max(prev - 0.25, 0.25));
-  const handleResetZoom = () => setZoom(1);
+  const handleResetZoom = () => {
+    setZoom(1);
+    requestAnimationFrame(() => centerViewportOnOrigin(1));
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      const state = panStateRef.current;
+      const container = scrollContainerRef.current;
+      if (!state.active || !container) return;
+
+      const dx = event.clientX - state.startX;
+      const dy = event.clientY - state.startY;
+      container.scrollLeft = state.startScrollLeft - dx;
+      container.scrollTop = state.startScrollTop - dy;
+    };
+
+    const stopPanning = () => {
+      if (!panStateRef.current.active) return;
+      panStateRef.current.active = false;
+      setIsPanning(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', stopPanning);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', stopPanning);
+    };
+  }, []);
+
+  useEffect(() => {
+    const stopPanningFromRef = () => {
+      if (panStateRef.current.active) {
+        panStateRef.current.active = false;
+        setIsPanning(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) {
+        return;
+      }
+      e.preventDefault();
+      setSpaceHeld(true);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setSpaceHeld(false);
+        stopPanningFromRef();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+
+  const startPan = (event: React.MouseEvent<HTMLDivElement>) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    event.preventDefault();
+
+    panStateRef.current = {
+      active: true,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScrollLeft: container.scrollLeft,
+      startScrollTop: container.scrollTop,
+    };
+    setIsPanning(true);
+  };
+
+  const clearTextSelection = () => {
+    setSelectedWidgetId(null);
+    setEditingWidgetId(null);
+  };
+
+  useEffect(() => {
+    for (const w of widgets) {
+      if (w.type !== 'text-field' || knownTextWidgetIdsRef.current.has(w.id)) continue;
+      knownTextWidgetIdsRef.current.add(w.id);
+      setSelectedWidgetId(w.id);
+      setEditingWidgetId(w.id);
+    }
+  }, [widgets]);
+
+  const handleWorldMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button === 0 && !spaceHeld && event.target === event.currentTarget) {
+      clearTextSelection();
+    }
+  };
+
+  const handleCanvasMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    const isMiddle = event.button === 1;
+    const isRight = event.button === 2;
+    const isSpaceLeft = event.button === 0 && spaceHeld;
+    if (!isMiddle && !isRight && !isSpaceLeft) return;
+    clearTextSelection();
+    startPan(event);
+  };
+
+  const handleTextSizeUpdate = (id: string, size: { width: number; height: number }) => {
+    onUpdateWidgetSize(id, size);
+  };
+
+  const handleCanvasWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    // Use wheel for dashboard zoom.
+    event.preventDefault();
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const prevZoom = zoom;
+    const delta = event.deltaY < 0 ? 0.1 : -0.1;
+    const nextZoom = Math.min(3, Math.max(0.25, prevZoom + delta));
+    if (nextZoom === prevZoom) return;
+
+    // Keep zoom focus near the pointer position.
+    const rect = container.getBoundingClientRect();
+    const pointerX = event.clientX - rect.left + container.scrollLeft;
+    const pointerY = event.clientY - rect.top + container.scrollTop;
+    const scaleRatio = nextZoom / prevZoom;
+
+    setZoom(nextZoom);
+
+    requestAnimationFrame(() => {
+      container.scrollLeft = pointerX * scaleRatio - (event.clientX - rect.left);
+      container.scrollTop = pointerY * scaleRatio - (event.clientY - rect.top);
+    });
+  };
 
   const handleAddWidgetFromToolbar = (type: WidgetType) => {
     const widgetTitles: Record<WidgetType, string> = {
@@ -313,7 +493,7 @@ export function DashboardCanvas({
           return (
             <div className="flex h-full min-h-0 flex-col items-center justify-center overflow-hidden px-3 py-2">
               <div
-                className="flex max-w-full items-center justify-center gap-2 text-center text-2xl font-bold leading-tight sm:text-3xl"
+                className="flex max-w-full items-center justify-center gap-2 text-center text-2xl font-bold leading-tight"
                 style={{ color }}
               >
                 {widget.data.isPositive && <TrendingUp className="h-7 w-7 shrink-0" aria-hidden />}
@@ -328,10 +508,33 @@ export function DashboardCanvas({
       case 'table':
         return <FtrReportTable onExtractMetric={handleExtractMetric} />;
 
-      case 'text-field':
+      case 'text-field': {
+        const data = (widget.data ?? {}) as CanvasTextData;
+        const text = data.text ?? '';
+        const fontSize = data.fontSize ?? DEFAULT_TEXT_FONT_SIZE;
+        const isSelected = selectedWidgetId === widget.id;
+        const isEditing = editingWidgetId === widget.id;
         return (
-          <AutoResizeTextarea />
+          <CanvasTextWidget
+            text={text}
+            fontSize={fontSize}
+            isSelected={isSelected}
+            isEditing={isEditing}
+            onSelect={() => {
+              setSelectedWidgetId(widget.id);
+              setEditingWidgetId(null);
+            }}
+            onStartEdit={() => {
+              setSelectedWidgetId(widget.id);
+              setEditingWidgetId(widget.id);
+            }}
+            onEndEdit={() => setEditingWidgetId(null)}
+            onTextChange={(next) =>
+              onUpdateWidgetData(widget.id, { ...data, text: next, fontSize })
+            }
+          />
         );
+      }
 
       case 'portfolio-widget':
         return (
@@ -347,31 +550,11 @@ export function DashboardCanvas({
     }
   };
 
+  const panCursor = isPanning ? 'cursor-grabbing' : spaceHeld ? 'cursor-grab' : 'cursor-default';
+
   return (
     <div className="h-full flex flex-col bg-zinc-950">
-      {/* Canvas with grid background */}
-      <div
-        className="flex-1 overflow-hidden relative"
-        style={{
-          backgroundImage: `
-            radial-gradient(circle, rgba(250, 204, 21, 0.08) 1px, transparent 1px)
-          `,
-          backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
-          backgroundPosition: 'center center',
-        }}
-      >
-        {/* Overlay pattern */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            backgroundImage: `
-              linear-gradient(rgba(250, 204, 21, 0.02) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(250, 204, 21, 0.02) 1px, transparent 1px)
-            `,
-            backgroundSize: `${48 * zoom}px ${48 * zoom}px`,
-          }}
-        />
-
+      <div className="flex-1 overflow-hidden relative bg-zinc-950">
         {/* Zoom Controls */}
         <div className="absolute bottom-6 right-6 flex flex-col gap-2 z-50">
           <motion.button
@@ -403,31 +586,69 @@ export function DashboardCanvas({
           </motion.button>
         </div>
 
-        {/* Widgets Container */}
-        <div className="absolute inset-0 overflow-auto">
+        <div
+          ref={scrollContainerRef}
+          className={`absolute inset-0 overflow-hidden ${panCursor}`}
+          onMouseDown={handleCanvasMouseDown}
+          onWheel={handleCanvasWheel}
+          onContextMenu={(e) => e.preventDefault()}
+        >
           <div
-            className="relative min-h-full min-w-full origin-top-left transition-transform duration-200"
+            className="relative origin-top-left [contain:layout]"
+            onMouseDown={handleWorldMouseDown}
             style={{
+              width: WORLD_SIZE,
+              height: WORLD_SIZE,
               transform: `scale(${zoom})`,
-              width: `${100 / zoom}%`,
-              height: `${100 / zoom}%`,
+              transformOrigin: '0 0',
+              backfaceVisibility: 'hidden',
+              backgroundColor: '#09090b',
+              backgroundImage: `
+                radial-gradient(circle, rgba(250, 204, 21, 0.08) 1px, transparent 1px),
+                linear-gradient(rgba(250, 204, 21, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(250, 204, 21, 0.02) 1px, transparent 1px)
+              `,
+              backgroundSize: `24px 24px, 48px 48px, 48px 48px`,
             }}
           >
-            {widgets.map((widget) => (
-              <FlexibleWidget
-                key={widget.id}
-                widget={widget}
-                onRemove={onRemoveWidget}
-                onUpdatePosition={onUpdateWidgetPosition}
-                onUpdateSize={onUpdateWidgetSize}
-              >
-                {renderWidgetContent(widget)}
-              </FlexibleWidget>
-            ))}
-            
-            {/* Drawing Canvas Layer */}
-            <DrawingCanvas isActive={isBrushActive} />
+            {widgets.map((widget) => {
+              const isText = widget.type === 'text-field';
+              const isSelected = selectedWidgetId === widget.id;
+              const isEditing = editingWidgetId === widget.id;
+              return (
+                <FlexibleWidget
+                  key={widget.id}
+                  widget={widget}
+                  onRemove={(id) => {
+                    if (selectedWidgetId === id) clearTextSelection();
+                    onRemoveWidget(id);
+                  }}
+                  onUpdatePosition={onUpdateWidgetPosition}
+                  onUpdateSize={isText ? handleTextSizeUpdate : onUpdateWidgetSize}
+                  canvasOrigin={{ x: WORLD_ORIGIN, y: WORLD_ORIGIN }}
+                  zoom={zoom}
+                  isSelected={isText ? isSelected : false}
+                  isEditing={isText ? isEditing : false}
+                  onSelect={
+                    isText
+                      ? () => {
+                          setSelectedWidgetId(widget.id);
+                          setEditingWidgetId(null);
+                        }
+                      : undefined
+                  }
+                >
+                  {renderWidgetContent(widget)}
+                </FlexibleWidget>
+              );
+            })}
           </div>
+        </div>
+
+        <DrawingCanvas isActive={isBrushActive} viewportRef={scrollContainerRef} />
+
+        <div className="pointer-events-none absolute bottom-3 left-3 z-50 rounded-lg border border-zinc-800/80 bg-zinc-900/80 px-2.5 py-1.5 text-[10px] text-zinc-500">
+          Pan: middle / right mouse · Space + drag · Wheel: zoom
         </div>
       </div>
     </div>

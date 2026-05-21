@@ -133,6 +133,21 @@ function App() {
     );
   };
 
+  const handleUpdateWidgetData = (id: string, data: Record<string, unknown>) => {
+    setCanvases((prev) =>
+      prev.map((c) =>
+        c.id === activeCanvasId
+          ? {
+              ...c,
+              widgets: c.widgets.map((w) =>
+                w.id === id ? { ...w, data: { ...(w.data ?? {}), ...data } } : w
+              ),
+            }
+          : c
+      )
+    );
+  };
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="h-screen flex flex-col overflow-hidden bg-black">
@@ -157,6 +172,7 @@ function App() {
                 onRemoveWidget={handleRemoveWidget}
                 onUpdateWidgetPosition={handleUpdatePosition}
                 onUpdateWidgetSize={handleUpdateSize}
+                onUpdateWidgetData={handleUpdateWidgetData}
                 isWidgetsOpen={isWidgetsOpen}
                 isBrushActive={isBrushActive}
               />
@@ -179,13 +195,13 @@ function App() {
             onWidgetsToggle={() => setIsWidgetsOpen(!isWidgetsOpen)}
             onBrushToggle={() => setIsBrushActive(!isBrushActive)}
             onTextFieldAdd={() => {
-              // Add a text field widget
               const newTextField = {
                 id: `text-${Date.now()}`,
                 type: 'text-field' as const,
-                title: 'Text Field',
+                title: 'Text',
                 position: { x: 100, y: 100 },
-                size: { width: 300, height: 100 },
+                size: { width: 280, height: 120 },
+                data: { text: '', fontSize: 24 },
               };
               handleAddWidget(newTextField);
             }}

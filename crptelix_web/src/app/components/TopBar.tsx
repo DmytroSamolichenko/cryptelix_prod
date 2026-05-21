@@ -1,5 +1,6 @@
-import { TrendingUp, Wallet, Link2, Check, Bot, LayoutGrid, User } from 'lucide-react';
-import { useState } from 'react';
+import { TrendingUp, Wallet, Link2, Bot, User } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { cn } from './ui/utils';
 import { CryptelixLogo } from './CryptelixLogo';
 import { ConnectWalletModal } from './modals/ConnectWalletModal';
 import { ConnectBrokerModal } from './modals/ConnectBrokerModal';
@@ -24,6 +25,8 @@ export function TopBar({
   isChatOpen,
   isWidgetsOpen
 }: TopBarProps) {
+  const [connectedExchangeCount, setConnectedExchangeCount] = useState(0);
+  const [connectedWalletCount, setConnectedWalletCount] = useState(0);
   const [connections, setConnections] = useState({
     broker: false,
     wallet: false,
@@ -38,9 +41,28 @@ export function TopBar({
 
   const [isUserProfileOpen, setIsUserProfileOpen] = useState(false);
 
-  const toggleConnection = (type: 'broker' | 'wallet' | 'tradingView') => {
-    setConnections((prev) => ({ ...prev, [type]: !prev[type] }));
-  };
+  const refreshConnectionStatus = useCallback(async () => {
+    try {
+      const res = await fetch('http://localhost:8000/api/v1/exchanges/credentials/status');
+      if (!res.ok) return;
+      const payload = (await res.json()) as {
+        connected_exchanges?: string[];
+        binance_connected?: boolean;
+      };
+      const count = payload.connected_exchanges?.length ?? 0;
+      setConnectedExchangeCount(count);
+      setConnections((prev) => ({
+        ...prev,
+        broker: count > 0 || Boolean(payload.binance_connected),
+      }));
+    } catch {
+      // keep local fallback state if API is unavailable
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshConnectionStatus();
+  }, [refreshConnectionStatus]);
 
   const openModal = (type: 'wallet' | 'broker' | 'tradingView') => {
     setModals((prev) => ({ ...prev, [type]: true }));
@@ -50,15 +72,20 @@ export function TopBar({
     setModals((prev) => ({ ...prev, [type]: false }));
   };
 
-  const handleConnect = (type: 'broker' | 'wallet' | 'tradingView') => {
-    toggleConnection(type);
+  const handleBrokerConnect = () => {
+    void refreshConnectionStatus();
   };
 
-  const totalConnections = Object.values(connections).filter(Boolean).length;
+  const handleWalletConnect = () => {
+    setConnectedWalletCount(1);
+    setConnections((prev) => ({ ...prev, wallet: true }));
+  };
+
+  const totalConnections = connectedExchangeCount + connectedWalletCount;
 
   return (
     <>
-      <div className="h-14 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800/50 flex items-center justify-between px-4">
+      <div className="h-14 bg-black border-b border-zinc-900/80 flex items-center justify-between px-4">
         {/* Left Section - Logo Only */}
         <div className="flex items-center">
           <CryptelixLogo />
@@ -70,68 +97,72 @@ export function TopBar({
           <div className="flex items-center gap-2">
             {/* Broker Connection */}
             <motion.button
-              onClick={() => connections.broker ? toggleConnection('broker') : openModal('broker')}
-              className={`group relative w-9 h-9 rounded-lg border transition-all ${
-                connections.broker
-                  ? 'bg-green-500/10 border-green-500/30'
+              onClick={() => openModal('broker')}
+              className={cn(
+                'group h-9 min-w-9 rounded-lg border px-1.5 transition-all flex items-center justify-center gap-1',
+                connectedExchangeCount > 0
+                  ? 'bg-green-500/10 border-green-500/40 shadow-[0_0_12px_rgba(34,197,94,0.15)]'
                   : 'bg-zinc-900/40 border-zinc-700/50 hover:border-yellow-500/40 hover:bg-zinc-800/40'
-              }`}
+              )}
               title="Connect Broker"
-              whileHover={{ scale: 1.1 }}
+              whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
-              <div className="flex items-center justify-center w-full h-full relative">
-                <TrendingUp className={`w-4 h-4 ${connections.broker ? 'text-green-400' : 'text-gray-400 group-hover:text-yellow-400'}`} />
-                {connections.broker && (
-                  <motion.div 
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full flex items-center justify-center"
-                  >
-                    <Check className="w-2 h-2 text-black" />
-                  </motion.div>
+              <TrendingUp
+                className={cn(
+                  'w-3.5 h-3.5 shrink-0',
+                  connectedExchangeCount > 0
+                    ? 'text-green-400'
+                    : 'text-gray-400 group-hover:text-yellow-400'
                 )}
-              </div>
+              />
+              {connectedExchangeCount > 0 && (
+                <span className="text-[11px] font-bold tabular-nums leading-none text-green-400">
+                  {connectedExchangeCount}
+                </span>
+              )}
             </motion.button>
 
             {/* Crypto Wallet Connection */}
             <motion.button
-              onClick={() => connections.wallet ? toggleConnection('wallet') : openModal('wallet')}
-              className={`group relative w-9 h-9 rounded-lg border transition-all ${
-                connections.wallet
-                  ? 'bg-green-500/10 border-green-500/30'
+              onClick={() => openModal('wallet')}
+              className={cn(
+                'group h-9 min-w-9 rounded-lg border px-1.5 transition-all flex items-center justify-center gap-1',
+                connectedWalletCount > 0
+                  ? 'bg-green-500/10 border-green-500/40 shadow-[0_0_12px_rgba(34,197,94,0.15)]'
                   : 'bg-zinc-900/40 border-zinc-700/50 hover:border-yellow-500/40 hover:bg-zinc-800/40'
-              }`}
+              )}
               title="Connect Wallet"
-              whileHover={{ scale: 1.1 }}
+              whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
-              <div className="flex items-center justify-center w-full h-full relative">
-                <Wallet className={`w-4 h-4 ${connections.wallet ? 'text-green-400' : 'text-gray-400 group-hover:text-yellow-400'}`} />
-                {connections.wallet && (
-                  <motion.div 
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full flex items-center justify-center"
-                  >
-                    <Check className="w-2 h-2 text-black" />
-                  </motion.div>
+              <Wallet
+                className={cn(
+                  'w-3.5 h-3.5 shrink-0',
+                  connectedWalletCount > 0
+                    ? 'text-green-400'
+                    : 'text-gray-400 group-hover:text-yellow-400'
                 )}
-              </div>
+              />
+              {connectedWalletCount > 0 && (
+                <span className="text-[11px] font-bold tabular-nums leading-none text-green-400">
+                  {connectedWalletCount}
+                </span>
+              )}
             </motion.button>
 
-            {/* TradingView Connection - Coming Soon */}
+            {/* TradingView — Coming Soon */}
             <button
+              type="button"
               disabled
-              className="group relative w-9 h-9 rounded-lg border bg-zinc-900/20 border-zinc-800/50 cursor-not-allowed opacity-60"
-              title="Coming Soon"
+              className="h-9 min-w-[3.25rem] rounded-lg border border-zinc-800/50 bg-zinc-900/20 px-1.5 flex items-center justify-center gap-1 cursor-not-allowed opacity-70"
+              title="TradingView — Coming Soon"
             >
-              <div className="flex items-center justify-center w-full h-full relative">
-                <Link2 className="w-4 h-4 text-gray-600" />
-              </div>
-              <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                Coming Soon
-              </div>
+              <Link2 className="w-3.5 h-3.5 shrink-0 text-gray-600" />
+              <span className="text-[8px] font-medium leading-tight text-gray-500 text-left">
+                <span className="block">Coming</span>
+                <span className="block">Soon</span>
+              </span>
             </button>
           </div>
 
@@ -202,9 +233,21 @@ export function TopBar({
       </div>
 
       {/* Modals */}
-      <ConnectWalletModal isOpen={modals.wallet} onClose={() => closeModal('wallet')} onConnect={() => handleConnect('wallet')} />
-      <ConnectBrokerModal isOpen={modals.broker} onClose={() => closeModal('broker')} onConnect={() => handleConnect('broker')} />
-      <ConnectTradingViewModal isOpen={modals.tradingView} onClose={() => closeModal('tradingView')} onConnect={() => handleConnect('tradingView')} />
+      <ConnectWalletModal
+        isOpen={modals.wallet}
+        onClose={() => closeModal('wallet')}
+        onConnect={handleWalletConnect}
+      />
+      <ConnectBrokerModal
+        isOpen={modals.broker}
+        onClose={() => closeModal('broker')}
+        onConnect={handleBrokerConnect}
+      />
+      <ConnectTradingViewModal
+        isOpen={modals.tradingView}
+        onClose={() => closeModal('tradingView')}
+        onConnect={() => {}}
+      />
       
       {/* User Profile Modal */}
       <UserProfileModal

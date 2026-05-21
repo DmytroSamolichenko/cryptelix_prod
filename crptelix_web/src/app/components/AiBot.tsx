@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Sparkles, Clock, MessageSquare, Plus, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { ChatMessageMarkdown } from './ChatMessageMarkdown';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -265,7 +266,10 @@ export function AiBot() {
                         : 'bg-zinc-900 text-white border border-yellow-500/20'
                     }`}
                   >
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    <ChatMessageMarkdown
+                      content={message.content}
+                      variant={message.role === 'user' ? 'user' : 'assistant'}
+                    />
                     <div
                       className={`text-xs mt-1 ${
                         message.role === 'user' ? 'text-black/60' : 'text-gray-500'

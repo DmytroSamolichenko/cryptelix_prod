@@ -1,8 +1,7 @@
 import * as React from 'react';
 import { X, Network, LogOut, Mail, Calendar, Shield } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-// import userAvatar from 'figma:asset/3aa8722a1504aeb8baf8d09f164eed60a164576a.png';
-const userAvatar = 'https://via.placeholder.com/150';
+const userAvatar = '/default-user-avatar.svg';
 
 interface UserProfileModalProps {
   isOpen: boolean;

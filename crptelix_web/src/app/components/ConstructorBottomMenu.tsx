@@ -68,10 +68,10 @@ export function ConstructorBottomMenu({
   };
 
   return (
-    <div className="relative h-14 bg-zinc-950/80 backdrop-blur-md border-t border-zinc-800/50">
+    <div className="relative h-[62px] bg-zinc-950/80 backdrop-blur-md border-t border-zinc-800/50">
       <div className="h-full flex items-center justify-between px-4">
         {/* Left - Canvas Switcher */}
-        <div className="flex items-center gap-2 overflow-x-auto">
+        <div className="ml-1 flex items-center gap-2 overflow-visible py-1">
           {canvases.map((canvas) => {
             if (editingCanvasId === canvas.id) {
               return (
@@ -88,37 +88,34 @@ export function ConstructorBottomMenu({
               );
             }
             return (
-              <motion.div
+              <div
                 key={canvas.id}
-                className="relative group"
-                whileHover={{ scale: 1.05, y: -2 }}
+                className="relative"
               >
                 <button
                   onClick={() => onCanvasChange(canvas.id)}
                   onDoubleClick={() => handleStartEditing(canvas.id, canvas.name)}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
+                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-transform duration-150 ease-out hover:scale-105 ${
                     activeCanvasId === canvas.id
                       ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/30'
                       : 'bg-zinc-900/40 text-gray-400 hover:text-white hover:bg-zinc-800/40 border border-zinc-700/50'
                   }`}
                 >
                   {canvas.name}
+                  {canvases.length > 1 && activeCanvasId === canvas.id && (
+                    <span
+                      className="-mr-1 -mt-2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-zinc-700 text-zinc-200"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCanvasDelete(canvas.id);
+                      }}
+                      title="Delete canvas"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </span>
+                  )}
                 </button>
-                {canvases.length > 1 && (
-                  <motion.button
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    whileHover={{ scale: 1.1 }}
-                    className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onCanvasDelete(canvas.id);
-                    }}
-                    title="Delete canvas"
-                  >
-                    <X className="w-2.5 h-2.5 text-white" />
-                  </motion.button>
-                )}
-              </motion.div>
+              </div>
             );
           })}
           <motion.button

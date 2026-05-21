@@ -100,21 +100,26 @@ class ExchangeService:
         since: Optional[int],
         limit: int,
     ):
-        try:
-            return await self.client.fetch_my_trades(
-                symbol=symbol,
-                since=since,
-                limit=limit,
-            )
-        except Exception as exc:
-            if not self._is_timestamp_error(exc):
-                raise
-            await self._prepare_client_time()
-            return await self.client.fetch_my_trades(
-                symbol=symbol,
-                since=since,
-                limit=limit,
-            )
+        last_error: Exception | None = None
+        for _ in range(3):
+            try:
+                return await self.client.fetch_my_trades(
+                    symbol=symbol,
+                    since=since,
+                    limit=limit,
+                    params={"recvWindow": 60000},
+                )
+            except Exception as exc:
+                last_error = exc
+                if not self._is_timestamp_error(exc):
+                    raise
+                await self._prepare_client_time()
+                # Give exchange/client a short moment after time re-sync.
+                await asyncio.sleep(0.2)
+        if last_error is not None:
+            raise last_error
+        # Unreachable guard for type-checkers.
+        raise RuntimeError("Failed to fetch trades for unknown reason")
 
     async def fetch_and_sync_trades(
         self,

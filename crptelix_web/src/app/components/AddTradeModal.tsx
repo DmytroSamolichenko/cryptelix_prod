@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { X } from 'lucide-react';
+import { SideToggle } from './SideToggle';
 import { formatNumber } from './ui/utils';
 
 type ColumnType = 'text' | 'number' | 'percentage';
@@ -210,14 +211,7 @@ export function AddTradeModal({ onClose, onCreated, customColumns = [] }: AddTra
               <label className="block text-xs font-medium text-gray-300 mb-1">
                 Side
               </label>
-              <select
-                value={side}
-                onChange={(e) => setSide(e.target.value as 'Long' | 'Short')}
-                className="w-full px-3 py-2 bg-zinc-800/50 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:border-yellow-500/50 focus:ring-1 focus:ring-yellow-500/50"
-              >
-                <option value="Long">Long</option>
-                <option value="Short">Short</option>
-              </select>
+              <SideToggle value={side} onChange={setSide} />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-300 mb-1">

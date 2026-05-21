@@ -300,6 +300,20 @@ async def upsert_exchange_credentials(
     }
 
 
+@app.get("/api/v1/exchanges/credentials/status")
+async def get_exchange_credentials_status(db: Session = Depends(get_db)):
+    rows: list[APIKeyModel] = (
+        db.query(APIKeyModel)
+        .filter(APIKeyModel.user_id == DEFAULT_USER_ID)
+        .all()
+    )
+    connected = {str(row.exchange_name).strip().lower() for row in rows if row.exchange_name}
+    return {
+        "connected_exchanges": sorted(connected),
+        "binance_connected": "binance" in connected,
+    }
+
+
 @app.post("/api/v1/exchanges/binance/sync-trades")
 async def sync_binance_trades(
     payload: ExchangeSyncTradesRequest,

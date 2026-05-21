@@ -1,4 +1,4 @@
-import { X, Wallet, Shield, Zap, CheckCircle2, ExternalLink } from 'lucide-react';
+import { X, Shield, Zap, ExternalLink } from 'lucide-react';
 
 interface ConnectWalletModalProps {
   isOpen: boolean;
@@ -10,37 +10,43 @@ const wallets = [
   {
     name: 'MetaMask',
     description: 'Connect to your MetaMask wallet',
-    icon: '🦊',
+    logoUrl: '/wallet-logos/metamask.svg',
+    logoFallback: 'MM',
     popular: true,
   },
   {
     name: 'WalletConnect',
     description: 'Scan with WalletConnect to connect',
-    icon: '🔗',
+    logoUrl: '/wallet-logos/walletconnect.svg',
+    logoFallback: 'WC',
     popular: true,
   },
   {
     name: 'Coinbase Wallet',
     description: 'Connect with Coinbase Wallet',
-    icon: '💼',
+    logoUrl: '/wallet-logos/coinbase_wallet_new.png',
+    logoFallback: 'CB',
     popular: false,
   },
   {
     name: 'Trust Wallet',
     description: 'Connect to Trust Wallet',
-    icon: '🛡️',
+    logoUrl: '/wallet-logos/trust-wallet.png',
+    logoFallback: 'TW',
     popular: false,
   },
   {
     name: 'Phantom',
     description: 'Solana wallet integration',
-    icon: '👻',
+    logoUrl: '/wallet-logos/phantom.svg',
+    logoFallback: 'PH',
     popular: false,
   },
   {
     name: 'Ledger',
     description: 'Hardware wallet connection',
-    icon: '🔐',
+    logoUrl: '/wallet-logos/ledger.svg',
+    logoFallback: 'LG',
     popular: false,
   },
 ];
@@ -109,9 +115,21 @@ export function ConnectWalletModal({ isOpen, onClose, onConnect }: ConnectWallet
                 className="relative group w-full p-4 bg-zinc-800/50 hover:bg-zinc-800 rounded-xl border border-zinc-700/50 hover:border-yellow-500/50 transition-all text-left"
               >
                 <div className="flex items-center gap-4">
-                  {/* Icon */}
-                  <div className="w-12 h-12 bg-zinc-900 rounded-lg flex items-center justify-center text-2xl border border-zinc-700 group-hover:border-yellow-500/50 transition-colors">
-                    {wallet.icon}
+                  <div className="h-12 w-12 flex-shrink-0 flex items-center justify-center">
+                    <img
+                      src={wallet.logoUrl}
+                      alt={`${wallet.name} logo`}
+                      className="h-10 w-10 object-contain"
+                      loading="lazy"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        const fallback = e.currentTarget.nextElementSibling as HTMLSpanElement | null;
+                        if (fallback) fallback.style.display = 'flex';
+                      }}
+                    />
+                    <span className="hidden h-10 w-10 items-center justify-center rounded-lg bg-zinc-800 text-xs font-bold text-zinc-300">
+                      {wallet.logoFallback}
+                    </span>
                   </div>
                   
                   {/* Info */}

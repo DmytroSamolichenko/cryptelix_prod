@@ -1,6 +1,5 @@
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { motion } from 'motion/react';
 
 const STATS_API = 'http://localhost:8000/api/v1/trades/stats';
 
@@ -76,103 +75,70 @@ export function KeyMetricsCards() {
   const maxDd = stats?.max_drawdown ?? 0;
   const maxDdPct = stats?.max_drawdown_percent ?? 0;
 
-  return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
-      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-2 grid-rows-3 gap-2 overflow-hidden sm:gap-3">
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2 }}
-          className="flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-2.5 sm:p-3"
-        >
-          <div className="text-[10px] font-medium text-gray-400 sm:text-xs">Total Net Profit</div>
-          <div
-            className={`flex min-w-0 items-center gap-1 text-lg font-bold leading-tight sm:text-xl md:text-2xl ${tnpColor}`}
-          >
-            {tnpPositive && <TrendingUp className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" aria-hidden />}
-            {tnpNegative && <TrendingDown className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" aria-hidden />}
-            <span className="truncate tabular-nums">
-              {loading && !stats ? '…' : formatUsd(tnp)}
-            </span>
-          </div>
-          <div className="text-[10px] text-gray-500 sm:text-xs">Inc. commissions</div>
-        </motion.div>
+  const cardClass =
+    'flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-3';
 
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2, delay: 0.03 }}
-          className="flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-2.5 sm:p-3"
-        >
-          <div className="text-[10px] font-medium text-gray-400 sm:text-xs">Profit Factor</div>
-          <div className="truncate text-lg font-bold tabular-nums text-zinc-100 sm:text-xl md:text-2xl">
+  return (
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden [contain:layout]">
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-2 grid-rows-3 gap-2 overflow-hidden">
+        <div className={cardClass}>
+          <div className="text-xs font-medium text-gray-400">Total Net Profit</div>
+          <div
+            className={`flex min-w-0 items-center gap-1 text-xl font-bold leading-tight tabular-nums ${tnpColor}`}
+          >
+            {tnpPositive && <TrendingUp className="h-4 w-4 shrink-0" aria-hidden />}
+            {tnpNegative && <TrendingDown className="h-4 w-4 shrink-0" aria-hidden />}
+            <span className="truncate">{loading && !stats ? '…' : formatUsd(tnp)}</span>
+          </div>
+          <div className="text-xs text-gray-500">Inc. commissions</div>
+        </div>
+
+        <div className={cardClass}>
+          <div className="text-xs font-medium text-gray-400">Profit Factor</div>
+          <div className="truncate text-xl font-bold tabular-nums text-zinc-100">
             {loading && !stats ? '…' : pfDisplay}
           </div>
-          <div className="text-[10px] text-gray-500 sm:text-xs">Risk/Reward Ratio</div>
-        </motion.div>
+          <div className="text-xs text-gray-500">Risk/Reward Ratio</div>
+        </div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2, delay: 0.06 }}
-          className="flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-2.5 sm:p-3"
-        >
-          <div className="text-[10px] font-medium text-gray-400 sm:text-xs">Total Trades</div>
-          <div className="truncate text-lg font-bold tabular-nums text-zinc-100 sm:text-xl md:text-2xl">
+        <div className={cardClass}>
+          <div className="text-xs font-medium text-gray-400">Total Trades</div>
+          <div className="truncate text-xl font-bold tabular-nums text-zinc-100">
             {loading && !stats ? '…' : stats?.total_trades ?? 0}
           </div>
-          <div className="text-[10px] leading-snug sm:text-xs">
-            <span className="font-medium text-green-400">
-              {stats?.winners ?? 0} winners
-            </span>
+          <div className="text-xs leading-snug">
+            <span className="font-medium text-green-400">{stats?.winners ?? 0} winners</span>
             <span className="text-gray-500"> / </span>
             <span className="font-medium text-red-400">{stats?.losers ?? 0} losers</span>
           </div>
-        </motion.div>
+        </div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2, delay: 0.09 }}
-          className="flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-2.5 sm:p-3"
-        >
-          <div className="text-[10px] font-medium text-gray-400 sm:text-xs">Max Drawdown</div>
-          <div className="flex min-w-0 items-center gap-1 text-lg font-bold leading-tight text-red-400 sm:text-xl md:text-2xl">
-            <TrendingDown className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" aria-hidden />
-            <span className="truncate tabular-nums">
-              {loading && !stats ? '…' : formatUsd(maxDd)}
-            </span>
+        <div className={cardClass}>
+          <div className="text-xs font-medium text-gray-400">Max Drawdown</div>
+          <div className="flex min-w-0 items-center gap-1 text-xl font-bold leading-tight text-red-400 tabular-nums">
+            <TrendingDown className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="truncate">{loading && !stats ? '…' : formatUsd(maxDd)}</span>
           </div>
-          <div className="text-[10px] tabular-nums text-gray-500 sm:text-xs">
+          <div className="text-xs tabular-nums text-gray-500">
             {loading && !stats ? '…' : `${maxDdPct.toFixed(2)}%`}
           </div>
-        </motion.div>
+        </div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2, delay: 0.12 }}
-          className="flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-2.5 sm:p-3"
-        >
-          <div className="text-[10px] font-medium text-gray-400 sm:text-xs">Percent Profitable</div>
-          <div className={`truncate text-lg font-bold tabular-nums sm:text-xl md:text-2xl ${ppColor}`}>
+        <div className={cardClass}>
+          <div className="text-xs font-medium text-gray-400">Percent Profitable</div>
+          <div className={`truncate text-xl font-bold tabular-nums ${ppColor}`}>
             {loading && !stats ? '…' : `${pp.toFixed(2)}%`}
           </div>
-          <div className="text-[10px] text-gray-500 sm:text-xs">Win rate</div>
-        </motion.div>
+          <div className="text-xs text-gray-500">Win rate</div>
+        </div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2, delay: 0.15 }}
-          className="flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-2.5 sm:p-3"
-        >
-          <div className="text-[10px] font-medium text-gray-400 sm:text-xs">Avg Trade</div>
-          <div className={`truncate text-lg font-bold tabular-nums sm:text-xl md:text-2xl ${avgColor}`}>
+        <div className={cardClass}>
+          <div className="text-xs font-medium text-gray-400">Avg Trade</div>
+          <div className={`truncate text-xl font-bold tabular-nums ${avgColor}`}>
             {loading && !stats ? '…' : formatUsd(avg)}
           </div>
-          <div className="text-[10px] text-gray-500 sm:text-xs">Per trade</div>
-        </motion.div>
+          <div className="text-xs text-gray-500">Per trade</div>
+        </div>
       </div>
     </div>
   );

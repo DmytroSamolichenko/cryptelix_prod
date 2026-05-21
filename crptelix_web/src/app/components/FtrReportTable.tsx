@@ -1,6 +1,5 @@
 import { TrendingUp, TrendingDown, ExternalLink } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { motion } from 'motion/react';
 
 const FTR_API = 'http://localhost:8000/api/v1/trades/ftr-report';
 
@@ -221,14 +220,8 @@ function FtrMetricRow({ label, value, isPositive, isNegative, onSpawn }: FtrMetr
   const showTrend = isPositive || isNegative;
 
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, x: -12 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.15 }}
-      className="group flex items-center justify-between rounded py-2 pl-2 pr-1 transition-colors hover:bg-zinc-800/50"
-    >
-      <span className="min-w-0 flex-1 pr-2 text-sm text-gray-400">{label}</span>
+    <div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded py-2 pl-2 pr-1 transition-colors hover:bg-zinc-800/50">
+      <span className="truncate text-sm text-gray-400">{label}</span>
       <div className="flex shrink-0 items-center gap-1.5">
         <span
           className={`flex items-center gap-1 text-sm font-medium tabular-nums ${
@@ -255,7 +248,7 @@ function FtrMetricRow({ label, value, isPositive, isNegative, onSpawn }: FtrMetr
           <ExternalLink className="h-3.5 w-3.5" />
         </button>
       </div>
-    </motion.div>
+    </div>
   );
 }
 
@@ -289,7 +282,7 @@ export function FtrReportTable({ onExtractMetric }: FtrReportTableProps) {
   }, []);
 
   return (
-    <div className="ftr-scrollbar h-full min-h-0 w-full min-w-0 overflow-x-hidden overflow-y-auto pr-1">
+    <div className="scrollbar-hidden h-full min-h-0 w-full min-w-0 overflow-x-hidden overflow-y-auto pr-1">
       <div className="space-y-0.5 pb-1">
         {rows.map((row) => (
           <FtrMetricRow

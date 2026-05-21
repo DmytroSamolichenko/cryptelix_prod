@@ -39,6 +39,10 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --scrollbar-size: 8px;
+  --scrollbar-track: #1f1f23;
+  --scrollbar-thumb: rgba(161, 161, 170, 0.38);
+  --scrollbar-thumb-hover: rgba(250, 204, 21, 0.62);
 }
 
 .dark {
@@ -76,6 +80,9 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
+  --scrollbar-track: #1f1f23;
+  --scrollbar-thumb: rgba(161, 161, 170, 0.38);
+  --scrollbar-thumb-hover: rgba(250, 204, 21, 0.62);
 }
 
 @theme inline {
@@ -180,29 +187,23 @@
   }
 }
 
-/* Full Trading Report — thin dark track, amber thumb on hover */
-.ftr-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: transparent #27272a;
+/* Hide scrollbars app-wide; scrolling still works via wheel / trackpad / touch */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-.ftr-scrollbar:hover {
-  scrollbar-color: rgba(250, 204, 21, 0.55) #27272a;
+
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
-.ftr-scrollbar::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-.ftr-scrollbar::-webkit-scrollbar-track {
-  background: #27272a;
-  border-radius: 4px;
-}
-.ftr-scrollbar::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 4px;
-}
-.ftr-scrollbar:hover::-webkit-scrollbar-thumb {
-  background: rgba(250, 204, 21, 0.55);
-}
-.ftr-scrollbar:hover::-webkit-scrollbar-thumb:hover {
-  background: rgba(250, 204, 21, 0.75);
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
 }
