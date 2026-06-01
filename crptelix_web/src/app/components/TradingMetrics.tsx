@@ -84,7 +84,7 @@ export function KeyMetricsCards() {
         <div className={cardClass}>
           <div className="text-xs font-medium text-gray-400">Total Net Profit</div>
           <div
-            className={`flex min-w-0 items-center gap-1 text-xl font-bold leading-tight tabular-nums ${tnpColor}`}
+            className={`flex min-w-0 items-center gap-1 text-lg font-bold leading-tight tabular-nums ${tnpColor}`}
           >
             {tnpPositive && <TrendingUp className="h-4 w-4 shrink-0" aria-hidden />}
             {tnpNegative && <TrendingDown className="h-4 w-4 shrink-0" aria-hidden />}
@@ -95,7 +95,7 @@ export function KeyMetricsCards() {
 
         <div className={cardClass}>
           <div className="text-xs font-medium text-gray-400">Profit Factor</div>
-          <div className="truncate text-xl font-bold tabular-nums text-zinc-100">
+          <div className="truncate text-lg font-bold tabular-nums text-zinc-100">
             {loading && !stats ? '…' : pfDisplay}
           </div>
           <div className="text-xs text-gray-500">Risk/Reward Ratio</div>
@@ -103,7 +103,7 @@ export function KeyMetricsCards() {
 
         <div className={cardClass}>
           <div className="text-xs font-medium text-gray-400">Total Trades</div>
-          <div className="truncate text-xl font-bold tabular-nums text-zinc-100">
+          <div className="truncate text-lg font-bold tabular-nums text-zinc-100">
             {loading && !stats ? '…' : stats?.total_trades ?? 0}
           </div>
           <div className="text-xs leading-snug">
@@ -115,7 +115,7 @@ export function KeyMetricsCards() {
 
         <div className={cardClass}>
           <div className="text-xs font-medium text-gray-400">Max Drawdown</div>
-          <div className="flex min-w-0 items-center gap-1 text-xl font-bold leading-tight text-red-400 tabular-nums">
+          <div className="flex min-w-0 items-center gap-1 text-lg font-bold leading-tight text-red-400 tabular-nums">
             <TrendingDown className="h-4 w-4 shrink-0" aria-hidden />
             <span className="truncate">{loading && !stats ? '…' : formatUsd(maxDd)}</span>
           </div>
@@ -126,7 +126,7 @@ export function KeyMetricsCards() {
 
         <div className={cardClass}>
           <div className="text-xs font-medium text-gray-400">Percent Profitable</div>
-          <div className={`truncate text-xl font-bold tabular-nums ${ppColor}`}>
+          <div className={`truncate text-lg font-bold tabular-nums ${ppColor}`}>
             {loading && !stats ? '…' : `${pp.toFixed(2)}%`}
           </div>
           <div className="text-xs text-gray-500">Win rate</div>
@@ -134,7 +134,7 @@ export function KeyMetricsCards() {
 
         <div className={cardClass}>
           <div className="text-xs font-medium text-gray-400">Avg Trade</div>
-          <div className={`truncate text-xl font-bold tabular-nums ${avgColor}`}>
+          <div className={`truncate text-lg font-bold tabular-nums ${avgColor}`}>
             {loading && !stats ? '…' : formatUsd(avg)}
           </div>
           <div className="text-xs text-gray-500">Per trade</div>

@@ -10,16 +10,16 @@ from openai import OpenAI
 _ENV_FILE = (Path(__file__).resolve().parent / ".env").resolve()
 load_dotenv(_ENV_FILE, override=True)
 
-SYSTEM_PROMPT = """Ти — професійний аналітик Cryptelix. Твоє завдання — надати розгорнутий технічний звіт по конкретній угоді українською мовою.
-Проаналізуй якість входу та виходу, зваж на P&L та нотатки користувача.
-Структура відповіді:
+SYSTEM_PROMPT = """You are a professional Cryptelix analyst. Provide a concise technical report on a specific trade in English.
+Analyze entry and exit quality, consider P&L and the user's notes.
+Response structure:
 
-Аналіз виконання: [Оцінка точності входу/виходу]
+Execution analysis: [Assessment of entry/exit accuracy]
 
-Ризик-менеджмент: [Оцінка розміру стопу або прибутку]
+Risk management: [Assessment of stop size or profit target]
 
-Порада: [Конкретна технічна рекомендація на майбутнє].
-Обсяг: 60-80 слів. Пиши професійно, але доступно."""
+Recommendation: [Specific technical advice for the future].
+Length: 60-80 words. Write professionally but clearly."""
 
 
 class AIAnalysisError(Exception):

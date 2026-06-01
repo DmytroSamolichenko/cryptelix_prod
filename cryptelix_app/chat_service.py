@@ -22,17 +22,17 @@ _ENV_FILE = (Path(__file__).resolve().parent / ".env").resolve()
 load_dotenv(_ENV_FILE, override=True)
 
 CHAT_SYSTEM_PROMPT = (
-    "Ти — глобальний AI-асистент Cryptelix. Відповідай завжди українською мовою. "
-    "Допомагай з торгівлею, дашбордами, крипто-аналітикою та навігацією по продукту. "
-    "Будь стислим, точним і професійним."
+    "You are the Cryptelix global AI assistant. Always respond in English. "
+    "Help with trading, dashboards, crypto analytics, and product navigation. "
+    "Be concise, accurate, and professional."
 )
 
 # Shown only when trade context is injected (keywords matched).
 TRADE_CONTEXT_SYSTEM_ADDON = (
-    "Ти МАЄШ доступ до останніх угод користувача, які надані тобі в контексті нижче. "
-    "Якщо користувач питає про них — використовуй лише ці дані, без домислів. "
-    "Якщо в блоці «Дані з бази» явно сказано, що угод немає — тоді й лише тоді скажи, "
-    "що зараз не бачиш жодної збереженої угоди; не вигадуй пари, P&L і дати."
+    "You HAVE access to the user's recent trades provided in the context below. "
+    "If the user asks about them, use only this data without guessing. "
+    "If the database block explicitly says there are no trades, only then say "
+    "you do not see any saved trades; do not invent pairs, P&L, or dates."
 )
 
 class ChatServiceError(Exception):
@@ -47,27 +47,24 @@ def message_needs_trades_context(user_text: str) -> bool:
     """Broad trigger for injecting last trades from public.trades."""
     t = user_text.lower()
     needles = (
-        "угода",
-        "угоди",
-        "угод",
-        "торгівл",
-        "профіт",
+        "trade",
+        "trades",
+        "trading",
         "profit",
         "pnl",
-        "пнл",
-        "статистик",
-        "остан",
-        "мій",
-        "моя",
-        "моє",
-        "мої",
-        "моїх",
-        "портфель",
+        "statistic",
+        "stats",
+        "latest",
+        "recent",
+        "last",
+        "my",
+        "portfolio",
+        "position",
+        "positions",
     )
     if any(n in t for n in needles):
         return True
-    # «я» як окреме слово (щоб не ловити випадкові підрядки)
-    if re.search(r"(^|[\s,.:;!?—–\-«„(])я([\s,.:;!?—–\-»).]|$)", user_text, re.IGNORECASE):
+    if re.search(r"\bi\b", user_text, re.IGNORECASE):
         return True
     return False
 
@@ -93,7 +90,7 @@ def _row_val(row: Mapping[str, Any], *names: str) -> Any:
 
 def _format_pnl_display(pnl: object) -> str:
     if pnl is None:
-        return "н/д"
+        return "n/a"
     try:
         v = float(pnl)
     except (TypeError, ValueError):
@@ -104,7 +101,7 @@ def _format_pnl_display(pnl: object) -> str:
     return s
 
 
-def _format_trade_line_uk(row: Mapping[str, Any], idx: int, total: int) -> str:
+def _format_trade_line(row: Mapping[str, Any], idx: int, total: int) -> str:
     pair = _row_val(row, "pair") or "?"
     side = _row_val(row, "side") or "?"
     pnl_s = _format_pnl_display(_row_val(row, "pnl"))
@@ -112,10 +109,10 @@ def _format_trade_line_uk(row: Mapping[str, Any], idx: int, total: int) -> str:
     if hasattr(dt_raw, "isoformat"):
         d_part = dt_raw.isoformat()[:19]
     else:
-        d_part = str(dt_raw) if dt_raw is not None else "н/д"
+        d_part = str(dt_raw) if dt_raw is not None else "n/a"
     comm = _row_val(row, "commission")
     if comm is None:
-        comm_s = "н/д"
+        comm_s = "n/a"
     else:
         try:
             comm_s = f"{float(comm):.2f}$"
@@ -123,17 +120,17 @@ def _format_trade_line_uk(row: Mapping[str, Any], idx: int, total: int) -> str:
             comm_s = str(comm)
     ep = _row_val(row, "entry_price")
     xp = _row_val(row, "exit_price")
-    ep_s = _decimal_str(ep) if ep is not None else "н/д"
-    xp_s = _decimal_str(xp) if xp is not None else "н/д"
+    ep_s = _decimal_str(ep) if ep is not None else "n/a"
+    xp_s = _decimal_str(xp) if xp is not None else "n/a"
     if total == 1:
-        head = "Твоя остання угода"
+        head = "Your latest trade"
     elif idx == 1:
-        head = f"Твоя найновіша угода (1 з {total})"
+        head = f"Your most recent trade (1 of {total})"
     else:
-        head = f"Угода {idx} з {total} (новіші перші)"
+        head = f"Trade {idx} of {total} (newest first)"
     return (
-        f"{head}: {pair}, {side}, P&L: {pnl_s}, комісія: {comm_s}, "
-        f"вхід: {ep_s}, вихід: {xp_s}, дата: {d_part}"
+        f"{head}: {pair}, {side}, P&L: {pnl_s}, commission: {comm_s}, "
+        f"entry: {ep_s}, exit: {xp_s}, date: {d_part}"
     )
 
 
@@ -164,15 +161,15 @@ def build_trades_context_block(db: Session, user_id: int) -> str:
     rows = fetch_last_trades_raw(db, user_id, limit=5)
     if not rows:
         return (
-            "Дані з бази (public.trades, user_id=%s): зараз немає жодної збереженої угоди. "
-            "Якщо користувач питає про свої угоди — скажи це чесно; не вигадуй угод."
+            "Database data (public.trades, user_id=%s): there are no saved trades right now. "
+            "If the user asks about their trades, say so honestly; do not invent trades."
             % user_id
         )
     lines = [
-        f"Дані з бази: останні {len(rows)} угод користувача (user_id={user_id}) з public.trades, від новіших до старіших:",
+        f"Database data: last {len(rows)} trades for user (user_id={user_id}) from public.trades, newest first:",
     ]
     for i, row in enumerate(rows, start=1):
-        lines.append(_format_trade_line_uk(row, i, len(rows)))
+        lines.append(_format_trade_line(row, i, len(rows)))
     return "\n".join(lines)
 
 
@@ -269,7 +266,7 @@ def send_chat(
 
     if not session.title or not str(session.title).strip():
         snippet = text.replace("\n", " ").strip()
-        session.title = (snippet[:80] + ("…" if len(snippet) > 80 else "")) or "Чат"
+        session.title = (snippet[:80] + ("…" if len(snippet) > 80 else "")) or "Chat"
 
     system_content = CHAT_SYSTEM_PROMPT
     if message_needs_trades_context(text):

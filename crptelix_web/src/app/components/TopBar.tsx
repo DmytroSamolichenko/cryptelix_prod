@@ -2,7 +2,6 @@ import { TrendingUp, Wallet, Link2, Bot, User } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { cn } from './ui/utils';
 import { CryptelixLogo } from './CryptelixLogo';
-import { ConnectWalletModal } from './modals/ConnectWalletModal';
 import { ConnectBrokerModal } from './modals/ConnectBrokerModal';
 import { ConnectTradingViewModal } from './modals/ConnectTradingViewModal';
 import { UserProfileModal } from './UserProfileModal';
@@ -26,15 +25,12 @@ export function TopBar({
   isWidgetsOpen
 }: TopBarProps) {
   const [connectedExchangeCount, setConnectedExchangeCount] = useState(0);
-  const [connectedWalletCount, setConnectedWalletCount] = useState(0);
   const [connections, setConnections] = useState({
     broker: false,
-    wallet: false,
     tradingView: false,
   });
 
   const [modals, setModals] = useState({
-    wallet: false,
     broker: false,
     tradingView: false,
   });
@@ -64,11 +60,11 @@ export function TopBar({
     void refreshConnectionStatus();
   }, [refreshConnectionStatus]);
 
-  const openModal = (type: 'wallet' | 'broker' | 'tradingView') => {
+  const openModal = (type: 'broker' | 'tradingView') => {
     setModals((prev) => ({ ...prev, [type]: true }));
   };
 
-  const closeModal = (type: 'wallet' | 'broker' | 'tradingView') => {
+  const closeModal = (type: 'broker' | 'tradingView') => {
     setModals((prev) => ({ ...prev, [type]: false }));
   };
 
@@ -76,16 +72,11 @@ export function TopBar({
     void refreshConnectionStatus();
   };
 
-  const handleWalletConnect = () => {
-    setConnectedWalletCount(1);
-    setConnections((prev) => ({ ...prev, wallet: true }));
-  };
-
-  const totalConnections = connectedExchangeCount + connectedWalletCount;
+  const totalConnections = connectedExchangeCount;
 
   return (
     <>
-      <div className="h-14 bg-black border-b border-zinc-900/80 flex items-center justify-between px-4">
+      <div className="h-12 bg-black border-b border-zinc-900/80 flex items-center justify-between px-3">
         {/* Left Section - Logo Only */}
         <div className="flex items-center">
           <CryptelixLogo />
@@ -123,33 +114,19 @@ export function TopBar({
               )}
             </motion.button>
 
-            {/* Crypto Wallet Connection */}
-            <motion.button
-              onClick={() => openModal('wallet')}
-              className={cn(
-                'group h-9 min-w-9 rounded-lg border px-1.5 transition-all flex items-center justify-center gap-1',
-                connectedWalletCount > 0
-                  ? 'bg-green-500/10 border-green-500/40 shadow-[0_0_12px_rgba(34,197,94,0.15)]'
-                  : 'bg-zinc-900/40 border-zinc-700/50 hover:border-yellow-500/40 hover:bg-zinc-800/40'
-              )}
-              title="Connect Wallet"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+            {/* Crypto Wallet — Coming Soon */}
+            <button
+              type="button"
+              disabled
+              className="h-9 min-w-[3.25rem] rounded-lg border border-zinc-800/50 bg-zinc-900/20 px-1.5 flex items-center justify-center gap-1 cursor-not-allowed opacity-70"
+              title="Wallet — Coming Soon"
             >
-              <Wallet
-                className={cn(
-                  'w-3.5 h-3.5 shrink-0',
-                  connectedWalletCount > 0
-                    ? 'text-green-400'
-                    : 'text-gray-400 group-hover:text-yellow-400'
-                )}
-              />
-              {connectedWalletCount > 0 && (
-                <span className="text-[11px] font-bold tabular-nums leading-none text-green-400">
-                  {connectedWalletCount}
-                </span>
-              )}
-            </motion.button>
+              <Wallet className="w-3.5 h-3.5 shrink-0 text-gray-600" />
+              <span className="text-[8px] font-medium leading-tight text-gray-500 text-left">
+                <span className="block">Coming</span>
+                <span className="block">Soon</span>
+              </span>
+            </button>
 
             {/* TradingView — Coming Soon */}
             <button
@@ -233,11 +210,6 @@ export function TopBar({
       </div>
 
       {/* Modals */}
-      <ConnectWalletModal
-        isOpen={modals.wallet}
-        onClose={() => closeModal('wallet')}
-        onConnect={handleWalletConnect}
-      />
       <ConnectBrokerModal
         isOpen={modals.broker}
         onClose={() => closeModal('broker')}

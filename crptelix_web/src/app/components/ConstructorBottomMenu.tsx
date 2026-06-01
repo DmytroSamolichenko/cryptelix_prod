@@ -2,6 +2,7 @@ import { LayoutGrid, Paintbrush, Type, Plus, LineChart, BarChart3, AreaChart, Pi
 import { WidgetType } from './DashboardWidget';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, Fragment } from 'react';
+import { BRUSH_COLORS } from './DrawingCanvas';
 
 interface ConstructorBottomMenuProps {
   onWidgetsToggle: () => void;
@@ -16,6 +17,8 @@ interface ConstructorBottomMenuProps {
   onCanvasDelete: (id: string) => void;
   isWidgetsOpen: boolean;
   isBrushActive: boolean;
+  brushColor: string;
+  onBrushColorChange: (color: string) => void;
 }
 
 export function ConstructorBottomMenu({
@@ -31,9 +34,12 @@ export function ConstructorBottomMenu({
   onCanvasDelete,
   isWidgetsOpen,
   isBrushActive,
+  brushColor,
+  onBrushColorChange,
 }: ConstructorBottomMenuProps) {
   const [editingCanvasId, setEditingCanvasId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
 
   const widgets = [
     { type: 'line-chart' as WidgetType, icon: LineChart, label: 'Price Chart' },
@@ -68,8 +74,8 @@ export function ConstructorBottomMenu({
   };
 
   return (
-    <div className="relative h-[62px] bg-zinc-950/80 backdrop-blur-md border-t border-zinc-800/50">
-      <div className="h-full flex items-center justify-between px-4">
+    <div className="relative h-[54px] bg-zinc-950/80 backdrop-blur-md border-t border-zinc-800/50">
+      <div className="h-full flex items-center justify-between px-3">
         {/* Left - Canvas Switcher */}
         <div className="ml-1 flex items-center gap-2 overflow-visible py-1">
           {canvases.map((canvas) => {
@@ -190,21 +196,78 @@ export function ConstructorBottomMenu({
             )}
           </div>
 
-          {/* Brush Tool */}
-          <motion.button
-            onClick={onBrushToggle}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-all flex items-center gap-2 ${
-              isBrushActive
-                ? 'bg-yellow-500/10 border-yellow-500/50 text-yellow-400'
-                : 'bg-zinc-900/40 border-zinc-700/50 text-gray-400 hover:text-white hover:border-yellow-500/40 hover:bg-zinc-800/40'
-            }`}
-            title="Drawing tool"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Paintbrush className="w-4 h-4" />
-            Brush
-          </motion.button>
+          {/* Brush Tool — toggle on/off; color dot opens palette */}
+          <div className="relative">
+            <motion.button
+              onClick={() => {
+                setIsColorPickerOpen(false);
+                onBrushToggle();
+              }}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-all flex items-center gap-2 ${
+                isBrushActive
+                  ? 'bg-yellow-500/10 border-yellow-500/50 text-yellow-400'
+                  : 'bg-zinc-900/40 border-zinc-700/50 text-gray-400 hover:text-white hover:border-yellow-500/40 hover:bg-zinc-800/40'
+              }`}
+              title={isBrushActive ? 'Disable brush' : 'Enable brush'}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Paintbrush className="w-4 h-4" />
+              Brush
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsColorPickerOpen((open) => !open);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsColorPickerOpen((open) => !open);
+                  }
+                }}
+                className="ml-0.5 h-3.5 w-3.5 rounded-full border border-zinc-600 shrink-0 cursor-pointer hover:ring-2 hover:ring-yellow-400/50"
+                style={{ backgroundColor: brushColor }}
+                title="Choose color"
+              />
+            </motion.button>
+
+            {isColorPickerOpen && (
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 animate-in slide-in-from-bottom-2 duration-200">
+                <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-3 shadow-xl">
+                  <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                    Brush color
+                  </p>
+                  <div className="grid grid-cols-4 gap-2">
+                    {BRUSH_COLORS.map(({ value, label }) => {
+                      const isSelected = brushColor === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          title={label}
+                          onClick={() => {
+                            onBrushColorChange(value);
+                            setIsColorPickerOpen(false);
+                          }}
+                          className={`h-8 w-8 rounded-full border-2 transition-transform hover:scale-110 ${
+                            isSelected
+                              ? 'border-yellow-400 ring-2 ring-yellow-400/40'
+                              : value === '#18181b'
+                                ? 'border-zinc-600'
+                                : 'border-transparent'
+                          }`}
+                          style={{ backgroundColor: value }}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Text Field */}
           <motion.button

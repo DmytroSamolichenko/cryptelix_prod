@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { AiBot } from './components/AiBot';
@@ -7,6 +7,8 @@ import { Widget } from './components/DashboardWidget';
 import { TopBar } from './components/TopBar';
 import { DataBase } from './components/DataBase';
 import { ConstructorBottomMenu } from './components/ConstructorBottomMenu';
+import { loadConstructorState, saveConstructorState } from './lib/dashboardStorage';
+import { scalePx, scaleSize } from './lib/uiScale';
 
 interface Canvas {
   id: string;
@@ -15,48 +17,17 @@ interface Canvas {
 }
 
 function App() {
-  const [canvases, setCanvases] = useState<Canvas[]>([
-    {
-      id: 'canvas-1',
-      name: 'Dashboard 1',
-      widgets: [
-        {
-          id: 'widget-1',
-          type: 'table',
-          title: 'Full Trading Report',
-          position: { x: 50, y: 50 },
-          size: { width: 600, height: 500 },
-        },
-        {
-          id: 'widget-2',
-          type: 'stats-card',
-          title: 'Key Metrics',
-          position: { x: 700, y: 50 },
-          size: { width: 450, height: 320 },
-        },
-        {
-          id: 'widget-3',
-          type: 'line-chart',
-          title: 'Profit Trend',
-          position: { x: 50, y: 600 },
-          size: { width: 500, height: 300 },
-        },
-        {
-          id: 'widget-4',
-          type: 'bar-chart',
-          title: 'Wins vs Losses',
-          position: { x: 600, y: 600 },
-          size: { width: 500, height: 300 },
-        },
-      ],
-    },
-  ]);
-
-  const [activeCanvasId, setActiveCanvasId] = useState('canvas-1');
+  const [initialState] = useState(() => loadConstructorState());
+  const [canvases, setCanvases] = useState<Canvas[]>(initialState.canvases);
+  const [activeCanvasId, setActiveCanvasId] = useState(initialState.activeCanvasId);
   const [currentView, setCurrentView] = useState<'constructor' | 'database'>('constructor');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isWidgetsOpen, setIsWidgetsOpen] = useState(false);
   const [isBrushActive, setIsBrushActive] = useState(false);
+  const [brushColor, setBrushColor] = useState(initialState.brushColor);
+  const [drawingsByCanvasId, setDrawingsByCanvasId] = useState<Record<string, string>>(
+    initialState.drawingsByCanvasId
+  );
 
   const activeCanvas = canvases.find((c) => c.id === activeCanvasId);
   const widgets = activeCanvas?.widgets || [];
@@ -81,6 +52,11 @@ function App() {
     if (canvases.length <= 1) return; // Don't delete if it's the last canvas
     
     setCanvases((prev) => prev.filter((c) => c.id !== id));
+    setDrawingsByCanvasId((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
     
     // If deleting the active canvas, switch to the first remaining canvas
     if (id === activeCanvasId) {
@@ -148,6 +124,19 @@ function App() {
     );
   };
 
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      saveConstructorState({
+        canvases,
+        activeCanvasId,
+        drawingsByCanvasId,
+        brushColor,
+      });
+    }, 400);
+
+    return () => window.clearTimeout(timeout);
+  }, [canvases, activeCanvasId, drawingsByCanvasId, brushColor]);
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="h-screen flex flex-col overflow-hidden bg-black">
@@ -175,6 +164,12 @@ function App() {
                 onUpdateWidgetData={handleUpdateWidgetData}
                 isWidgetsOpen={isWidgetsOpen}
                 isBrushActive={isBrushActive}
+                brushColor={brushColor}
+                canvasId={activeCanvasId}
+                drawingDataUrl={drawingsByCanvasId[activeCanvasId]}
+                onDrawingChange={(dataUrl) =>
+                  setDrawingsByCanvasId((prev) => ({ ...prev, [activeCanvasId]: dataUrl }))
+                }
               />
             ) : (
               <DataBase />
@@ -183,7 +178,7 @@ function App() {
 
           {/* Right Sidebar - AI Bot (Collapsible) */}
           {isChatOpen && (
-            <div className="w-96 flex-shrink-0 animate-in slide-in-from-right duration-300">
+            <div className="w-80 flex-shrink-0 animate-in slide-in-from-right duration-300">
               <AiBot />
             </div>
           )}
@@ -193,15 +188,18 @@ function App() {
         {currentView === 'constructor' && (
           <ConstructorBottomMenu
             onWidgetsToggle={() => setIsWidgetsOpen(!isWidgetsOpen)}
-            onBrushToggle={() => setIsBrushActive(!isBrushActive)}
+            onBrushToggle={() => setIsBrushActive((active) => !active)}
+            isBrushActive={isBrushActive}
+            brushColor={brushColor}
+            onBrushColorChange={setBrushColor}
             onTextFieldAdd={() => {
               const newTextField = {
                 id: `text-${Date.now()}`,
                 type: 'text-field' as const,
                 title: 'Text',
-                position: { x: 100, y: 100 },
-                size: { width: 280, height: 120 },
-                data: { text: '', fontSize: 24 },
+                position: { x: scalePx(100), y: scalePx(100) },
+                size: scaleSize(280, 120),
+                data: { text: '', fontSize: scalePx(24) },
               };
               handleAddWidget(newTextField);
             }}
@@ -220,12 +218,12 @@ function App() {
                 id: `widget-${Date.now()}-${Math.random()}`,
                 type,
                 title: widgetTitles[type] || 'Widget',
-                position: { x: Math.floor(Math.random() * 400) + 50, y: Math.floor(Math.random() * 200) + 50 },
-                size: type === 'table' 
-                  ? { width: 600, height: 500 } 
+                position: { x: Math.floor(Math.random() * scalePx(400)) + scalePx(50), y: Math.floor(Math.random() * scalePx(200)) + scalePx(50) },
+                size: type === 'table'
+                  ? scaleSize(600, 500)
                   : type === 'portfolio-widget'
-                  ? { width: 800, height: 600 }
-                  : { width: 400, height: 320 },
+                  ? scaleSize(800, 600)
+                  : scaleSize(400, 320),
               };
               handleAddWidget(newWidget);
             }}
@@ -236,7 +234,6 @@ function App() {
             onCanvasRename={renameCanvas}
             onCanvasDelete={deleteCanvas}
             isWidgetsOpen={isWidgetsOpen}
-            isBrushActive={isBrushActive}
           />
         )}
       </div>

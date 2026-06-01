@@ -69,7 +69,7 @@ export function SideToggle({ value, onChange, disabled = false, className }: Sid
       <button
         type="button"
         onClick={handleClick}
-        title={isShort ? 'Натисніть, щоб обрати Long' : 'Натисніть, щоб обрати Short'}
+        title={isShort ? 'Click to select Long' : 'Click to select Short'}
         className={sharedClass}
       >
         {content}
@@ -81,7 +81,7 @@ export function SideToggle({ value, onChange, disabled = false, className }: Sid
     <div
       role="img"
       aria-label={side}
-      title={`${side} (не можна змінити)`}
+      title={`${side} (cannot be changed)`}
       className={sharedClass}
     >
       {content}

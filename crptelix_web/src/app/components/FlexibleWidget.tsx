@@ -8,8 +8,8 @@ type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 const TEXT_MIN_WIDTH = 80;
 const TEXT_MIN_HEIGHT = 40;
-const WIDGET_MIN_WIDTH = 280;
-const WIDGET_MIN_HEIGHT = 200;
+const WIDGET_MIN_WIDTH = 238;
+const WIDGET_MIN_HEIGHT = 170;
 
 function clearTextSelection() {
   window.getSelection()?.removeAllRanges();
@@ -66,7 +66,7 @@ export function FlexibleWidget({
 
   const isTextField = widget.type === 'text-field';
   const position = widget.position || { x: 0, y: 0 };
-  const size = widget.size || { width: 400, height: 320 };
+  const size = widget.size || { width: 340, height: 272 };
   const displayX = canvasOrigin.x + position.x;
   const displayY = canvasOrigin.y + position.y;
   const minWidth = isTextField ? TEXT_MIN_WIDTH : WIDGET_MIN_WIDTH;
@@ -222,7 +222,7 @@ export function FlexibleWidget({
               <div
                 className="cursor-move rounded p-1 hover:bg-zinc-800"
                 onMouseDown={handleMouseDown}
-                title="Перемістити"
+                title="Move"
               >
                 <GripVertical className="h-3.5 w-3.5 text-zinc-400" />
               </div>
@@ -230,7 +230,7 @@ export function FlexibleWidget({
                 type="button"
                 onClick={() => onRemove(widget.id)}
                 className="rounded p-1 hover:bg-red-500/20"
-                title="Видалити"
+                title="Remove"
               >
                 <X className="h-3.5 w-3.5 text-zinc-400 hover:text-red-400" />
               </button>
@@ -282,8 +282,8 @@ export function FlexibleWidget({
             <X className="h-4 w-4 text-gray-500" />
           </button>
 
-          <div className="flex h-full min-h-0 flex-col overflow-hidden p-4 [contain:layout]">
-            <h3 className="mb-3 shrink-0 truncate text-sm font-semibold text-white">{widget.title}</h3>
+          <div className="flex h-full min-h-0 flex-col overflow-hidden p-3 [contain:layout]">
+            <h3 className="mb-2 shrink-0 truncate text-sm font-semibold text-white">{widget.title}</h3>
             <div
               className={
                 widget.type === 'line-chart' ||

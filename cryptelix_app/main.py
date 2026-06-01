@@ -314,6 +314,39 @@ async def get_exchange_credentials_status(db: Session = Depends(get_db)):
     }
 
 
+@app.delete("/api/v1/exchanges/credentials/{exchange_name}")
+async def delete_exchange_credentials(
+    exchange_name: str,
+    db: Session = Depends(get_db),
+):
+    normalized = _normalize_exchange_name(exchange_name)
+    row: APIKeyModel | None = (
+        db.query(APIKeyModel)
+        .filter(
+            APIKeyModel.user_id == DEFAULT_USER_ID,
+            APIKeyModel.exchange_name == normalized,
+        )
+        .first()
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No credentials found for exchange '{normalized}'.",
+        )
+
+    try:
+        db.delete(row)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {
+        "status": "ok",
+        "exchange_name": normalized,
+    }
+
+
 @app.post("/api/v1/exchanges/binance/sync-trades")
 async def sync_binance_trades(
     payload: ExchangeSyncTradesRequest,

@@ -24,7 +24,7 @@ const WELCOME: Message = {
   id: 'welcome',
   role: 'assistant',
   content:
-    'Вітаю! Я глобальний AI-асистент Cryptelix. Допоможу з дашбордами, метриками та торгівлею. Що вас цікавить?',
+    'Hello! I am the Cryptelix AI assistant. I can help with dashboards, metrics, and trading. What would you like to know?',
   timestamp: new Date(),
 };
 
@@ -94,7 +94,7 @@ export function AiBot() {
       setMessages(mapped.length > 0 ? mapped : [WELCOME]);
     } catch {
       setMessages([WELCOME]);
-      setSendError('Не вдалося завантажити повідомлення.');
+      setSendError('Failed to load messages.');
     } finally {
       setLoadingMessages(false);
     }
@@ -153,7 +153,7 @@ export function AiBot() {
         } catch {
           /* keep raw */
         }
-        throw new Error(detail || `Помилка ${res.status}`);
+        throw new Error(detail || `Error ${res.status}`);
       }
       const data = JSON.parse(rawText) as {
         session_id: string;
@@ -181,7 +181,7 @@ export function AiBot() {
       void fetchSessions();
     } catch (e) {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id));
-      setSendError(e instanceof Error ? e.message : 'Помилка відправки');
+      setSendError(e instanceof Error ? e.message : 'Failed to send message');
     } finally {
       setSending(false);
     }
@@ -194,24 +194,24 @@ export function AiBot() {
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-2">
             <Clock className="w-3.5 h-3.5 text-gray-400" />
-            <div className="text-xs font-medium text-gray-400">Історія чатів</div>
+            <div className="text-xs font-medium text-gray-400">Chat history</div>
           </div>
           <button
             type="button"
             onClick={handleNewChat}
             className="text-xs text-yellow-500 hover:text-yellow-400 px-2 py-1 rounded border border-yellow-500/30"
           >
-            Новий чат
+            New chat
           </button>
         </div>
         <div className="space-y-1.5 max-h-36 overflow-y-auto">
           {loadingSessions ? (
             <div className="flex items-center gap-2 text-xs text-gray-500 px-2 py-2">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Завантаження…
+              Loading…
             </div>
           ) : sessions.length === 0 ? (
-            <p className="text-xs text-gray-600 px-2">Ще немає збережених сесій</p>
+            <p className="text-xs text-gray-600 px-2">No saved sessions yet</p>
           ) : (
             sessions.map((s) => (
               <button
@@ -227,7 +227,7 @@ export function AiBot() {
                 <div className="flex items-center gap-2">
                   <MessageSquare className="w-3.5 h-3.5 text-gray-500 group-hover:text-yellow-400 shrink-0" />
                   <div className="text-xs text-gray-300 group-hover:text-white truncate min-w-0">
-                    {s.title?.trim() || 'Чат без назви'}
+                    {s.title?.trim() || 'Untitled chat'}
                   </div>
                 </div>
               </button>
@@ -245,7 +245,7 @@ export function AiBot() {
           {loadingMessages ? (
             <div className="flex items-center gap-2 text-sm text-gray-400 py-8 justify-center">
               <Loader2 className="w-5 h-5 animate-spin" />
-              Завантаження повідомлень…
+              Loading messages…
             </div>
           ) : (
             <>
@@ -289,7 +289,7 @@ export function AiBot() {
                     <Loader2 className="w-4 h-4 text-black animate-spin" />
                   </div>
                   <div className="rounded-2xl px-4 py-3 bg-zinc-900 border border-yellow-500/20">
-                    <p className="text-sm text-gray-400">Асистент друкує…</p>
+                    <p className="text-sm text-gray-400">Assistant is typing…</p>
                   </div>
                 </div>
               )}
@@ -322,7 +322,7 @@ export function AiBot() {
                   <button
                     type="button"
                     onClick={() => {
-                      setInput('Проаналізуй мій портфель і PnL');
+                      setInput('Analyze my portfolio and PnL');
                       setIsActionsOpen(false);
                     }}
                     className="w-full px-4 py-3 text-left text-sm text-white hover:bg-zinc-800 border-b border-zinc-800 transition-colors flex items-center gap-3"
@@ -330,12 +330,12 @@ export function AiBot() {
                     <div className="w-8 h-8 rounded-lg bg-yellow-500/10 flex items-center justify-center">
                       <Sparkles className="w-4 h-4 text-yellow-400" />
                     </div>
-                    <span>Мій портфель</span>
+                    <span>My portfolio</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      setInput('Створи ідею для дашборду');
+                      setInput('Suggest a dashboard layout idea');
                       setIsActionsOpen(false);
                     }}
                     className="w-full px-4 py-3 text-left text-sm text-white hover:bg-zinc-800 border-b border-zinc-800 transition-colors flex items-center gap-3"
@@ -343,12 +343,12 @@ export function AiBot() {
                     <div className="w-8 h-8 rounded-lg bg-yellow-500/10 flex items-center justify-center">
                       <MessageSquare className="w-4 h-4 text-yellow-400" />
                     </div>
-                    <span>Дашборд</span>
+                    <span>Dashboard</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      setInput('Порівняй активи');
+                      setInput('Compare my assets');
                       setIsActionsOpen(false);
                     }}
                     className="w-full px-4 py-3 text-left text-sm text-white hover:bg-zinc-800 transition-colors flex items-center gap-3"
@@ -356,7 +356,7 @@ export function AiBot() {
                     <div className="w-8 h-8 rounded-lg bg-yellow-500/10 flex items-center justify-center">
                       <Clock className="w-4 h-4 text-yellow-400" />
                     </div>
-                    <span>Порівняння</span>
+                    <span>Compare</span>
                   </button>
                 </div>
               )}
@@ -371,7 +371,7 @@ export function AiBot() {
                   void handleSend();
                 }
               }}
-              placeholder="Запитайте про метрики чи портфель…"
+              placeholder="Ask about metrics or your portfolio…"
               disabled={sending}
               className="flex-1 bg-zinc-900 border-yellow-500/30 text-white placeholder:text-gray-500 focus:border-yellow-400"
             />

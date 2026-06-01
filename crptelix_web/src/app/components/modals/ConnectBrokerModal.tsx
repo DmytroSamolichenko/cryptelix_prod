@@ -1,4 +1,4 @@
-import { X, TrendingUp, Shield, BarChart3, ExternalLink, Lock, CheckCircle2 } from 'lucide-react';
+import { X, TrendingUp, Shield, BarChart3, ExternalLink, Lock, CheckCircle2, Unplug } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { cn } from '../ui/utils';
 
@@ -72,6 +72,8 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
     Record<string, { apiKey: string; apiSecret: string }>
   >({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [connectedExchangeIds, setConnectedExchangeIds] = useState<Set<string>>(new Set());
 
@@ -104,12 +106,12 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
     const { apiKey, apiSecret } = currentCredentials;
     if (!apiKey || !apiSecret) return;
     if (selectedBroker !== 'Binance') {
-      setStatusMessage('Зараз доступне лише підключення Binance.');
+      setStatusMessage('Only Binance connection is available right now.');
       return;
     }
 
     setIsSubmitting(true);
-    setStatusMessage('Зберігаю API ключі...');
+    setStatusMessage('Saving API keys...');
     try {
       const credentialsRes = await fetch(`${API_BASE}/api/v1/exchanges/credentials`, {
         method: 'POST',
@@ -128,14 +130,14 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
       // Do not block UX on full-history sync: save credentials immediately,
       // then start sync in the background.
       void triggerBackgroundSync();
-      setStatusMessage('Ключ збережено. Синхронізацію історії запущено у фоні.');
+      setStatusMessage('Keys saved. Trade history sync started in the background.');
       await fetchConnectedExchanges();
       onConnect();
       setSelectedBroker(null);
       setTimeout(() => onClose(), 500);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Connection failed';
-      setStatusMessage(`Помилка: ${message}`);
+      setStatusMessage(`Error: ${message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -178,23 +180,60 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
         if (!res.ok) continue;
         const job = await res.json();
         if (job.status === 'done') {
-          setStatusMessage(`Синхронізація завершена. Імпортовано угод: ${job.synced_count ?? 0}.`);
+          setStatusMessage(`Sync complete. Trades imported: ${job.synced_count ?? 0}.`);
           return;
         }
         if (job.status === 'failed') {
-          setStatusMessage(`Синхронізація завершилась помилкою: ${job.error ?? 'невідома помилка'}`);
+          setStatusMessage(`Sync failed: ${job.error ?? 'unknown error'}`);
           return;
         }
       } catch {
         // transient polling error, continue
       }
     }
-    setStatusMessage('Синхронізація все ще виконується у фоні.');
+    setStatusMessage('Sync is still running in the background.');
   };
 
   const selectedCredentials = selectedBroker
     ? (credentialsByBroker[selectedBroker] ?? { apiKey: '', apiSecret: '' })
     : { apiKey: '', apiSecret: '' };
+
+  const selectedBrokerData = brokers.find((b) => b.name === selectedBroker) ?? null;
+  const isSelectedConnected =
+    selectedBrokerData?.exchangeId != null &&
+    connectedExchangeIds.has(selectedBrokerData.exchangeId);
+
+  const handleDisconnect = async () => {
+    if (!selectedBrokerData?.exchangeId) return;
+
+    setIsDisconnecting(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/v1/exchanges/credentials/${encodeURIComponent(selectedBrokerData.exchangeId)}`,
+        { method: 'DELETE' }
+      );
+      if (!res.ok) {
+        const errorBody = await res.text();
+        throw new Error(errorBody || 'Failed to disconnect exchange');
+      }
+
+      await fetchConnectedExchanges();
+      setCredentialsByBroker((prev) => {
+        const next = { ...prev };
+        delete next[selectedBrokerData.name];
+        return next;
+      });
+      setStatusMessage(`${selectedBrokerData.name} disconnected.`);
+      setDisconnectConfirmOpen(false);
+      onConnect();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Disconnect failed';
+      setStatusMessage(`Error: ${message}`);
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -312,14 +351,50 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
               </div>
             </div>
 
-            {/* Right: API Configuration */}
+            {/* Right: API Configuration or Connected Status */}
             <div>
               <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-                <Lock className="w-4 h-4 text-yellow-500" />
-                API Credentials
+                {isSelectedConnected ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                    Connection
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-4 h-4 text-yellow-500" />
+                    API Credentials
+                  </>
+                )}
               </h3>
               
               {selectedBroker ? (
+                isSelectedConnected ? (
+                  <div className="space-y-4">
+                    <div className="p-6 bg-green-500/5 border border-green-500/30 rounded-xl text-center">
+                      <CheckCircle2 className="w-12 h-12 text-green-400 mx-auto mb-3" />
+                      <p className="text-white font-semibold mb-1">
+                        {selectedBroker} connected
+                      </p>
+                      <p className="text-sm text-gray-400">
+                        Your account syncs automatically. API keys are stored securely.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setDisconnectConfirmOpen(true)}
+                      disabled={isDisconnecting}
+                      className="w-full px-6 py-3 bg-zinc-800 hover:bg-red-500/20 border border-zinc-700 hover:border-red-500/50 text-red-400 font-semibold rounded-lg transition-all disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      <Unplug className="w-4 h-4" />
+                      {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                    </button>
+
+                    {statusMessage && (
+                      <p className="text-xs text-gray-300 text-center">{statusMessage}</p>
+                    )}
+                  </div>
+                ) : (
                 <div className="space-y-4">
                   {/* Security Notice */}
                   <div className="p-4 bg-yellow-500/5 border border-yellow-500/20 rounded-xl">
@@ -425,6 +500,7 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
+                )
               ) : (
                 <div className="h-full flex items-center justify-center p-8 text-center">
                   <div>
@@ -439,6 +515,48 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
           </div>
         </div>
       </div>
+
+      {disconnectConfirmOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => !isDisconnecting && setDisconnectConfirmOpen(false)}
+          />
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="disconnect-dialog-title"
+            className="relative w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl"
+          >
+            <h3 id="disconnect-dialog-title" className="text-lg font-semibold text-white mb-2">
+              Remove connection?
+            </h3>
+            <p className="text-sm text-gray-400 mb-6">
+              Are you sure you want to remove the connection to{' '}
+              <span className="font-medium text-gray-200">{selectedBroker}</span>?
+              Data sync will stop and saved API keys will be deleted.
+            </p>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                disabled={isDisconnecting}
+                onClick={() => setDisconnectConfirmOpen(false)}
+                className="px-4 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-gray-300 hover:bg-zinc-700 hover:text-white transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDisconnecting}
+                onClick={() => void handleDisconnect()}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium transition-colors disabled:opacity-50"
+              >
+                {isDisconnecting ? 'Removing...' : 'Yes, remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

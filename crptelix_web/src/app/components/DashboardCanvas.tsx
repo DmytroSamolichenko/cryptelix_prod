@@ -3,23 +3,17 @@ import { Widget } from './DashboardWidget';
 import { WidgetType } from './DashboardWidget';
 import { FlexibleWidget } from './FlexibleWidget';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
 import { KeyMetricsCards } from './TradingMetrics';
 import { FtrReportTable } from './FtrReportTable';
 import { DrawingCanvas } from './DrawingCanvas';
-import { CanvasTextWidget, type CanvasTextData } from './CanvasTextWidget';
+import { CanvasTextElement, type TextElementState } from './CanvasTextElement';
 import { PortfolioWidget } from './PortfolioWidget';
 import { WvlWidget } from './WvlWidget';
+import { ProfitTrendWidget } from './ProfitTrendWidget';
+import { DEFAULT_CANVAS_ZOOM, scaleSize } from '../lib/uiScale';
+import { CanvasHelpHint } from './CanvasHelpHint';
 
 interface DashboardCanvasProps {
   widgets: Widget[];
@@ -30,215 +24,27 @@ interface DashboardCanvasProps {
   onUpdateWidgetData: (id: string, data: Record<string, unknown>) => void;
   isWidgetsOpen: boolean;
   isBrushActive: boolean;
-}
-
-function formatCompactUsd(value: number): string {
-  try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      notation: 'compact',
-      maximumFractionDigits: 1,
-    }).format(value);
-  } catch {
-    const sign = value < 0 ? '-' : '';
-    const abs = Math.abs(value);
-    if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
-    if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1)}k`;
-    return `${sign}$${abs.toFixed(0)}`;
-  }
-}
-
-function formatAxisDateLabel(iso: string): string {
-  const parts = iso.split('-').map(Number);
-  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return iso;
-  const [y, m, d] = parts;
-  const dt = new Date(y, m - 1, d);
-  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function formatMonthAxisLabel(iso: string): string {
-  const parts = iso.split('-').map(Number);
-  if (parts.length < 2 || parts.some((n) => !Number.isFinite(n))) return iso;
-  const [y, m] = parts;
-  const dt = new Date(y, m - 1, 1);
-  return dt.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  brushColor: string;
+  drawingDataUrl?: string;
+  onDrawingChange?: (dataUrl: string) => void;
+  canvasId?: string;
 }
 
 /** Workspace plane — scroll/pan in any direction (middle mouse, right mouse, or Space + drag) */
 const WORLD_SIZE = 10000;
 const WORLD_ORIGIN = WORLD_SIZE / 2;
 
-type ProfitTrendTimeScale = 'trades' | 'days' | 'weeks' | 'months';
-
-const PROFIT_TREND_TIME_SCALE_BUTTONS: { key: ProfitTrendTimeScale; label: string }[] = [
-  { key: 'trades', label: 'Trades' },
-  { key: 'days', label: 'Days' },
-  { key: 'weeks', label: 'Weeks' },
-  { key: 'months', label: 'Months' },
-];
-
-/** Y-axis top = max, bottom = min. Offset from top (0–100) where balance === 0 for linearGradient stops. */
-function profitTrendYRange(data: Array<{ balance: number }>): {
-  minY: number;
-  maxY: number;
-  zeroOffsetPct: number;
-} {
-  if (!data.length) {
-    return { minY: 0, maxY: 1, zeroOffsetPct: 50 };
-  }
-  const balances = data.map((d) => d.balance);
-  let minY = Math.min(0, ...balances);
-  let maxY = Math.max(0, ...balances);
-  if (minY === maxY) {
-    const pad = Math.abs(minY) * 0.05 || 1;
-    minY -= pad;
-    maxY += pad;
-  }
-  const range = maxY - minY;
-  const zeroFromTop = (maxY - 0) / range;
-  const z = Math.min(0.999, Math.max(0.001, zeroFromTop));
-  return { minY, maxY, zeroOffsetPct: z * 100 };
+function widgetToTextElement(widget: Widget): TextElementState {
+  const data = (widget.data ?? {}) as { text?: string };
+  return {
+    id: widget.id,
+    text: data.text ?? '',
+    x: widget.position?.x ?? 0,
+    y: widget.position?.y ?? 0,
+    width: widget.size?.width ?? 280,
+    height: widget.size?.height ?? 120,
+  };
 }
-
-function ProfitTrendWidget() {
-  const [data, setData] = useState<Array<{ date: string; balance: number }>>([]);
-  const [period, setPeriod] = useState<ProfitTrendTimeScale>('trades');
-  const API_BASE_URL = 'http://localhost:8000';
-  const fillGradientId = useMemo(
-    () => `profit-trend-fill-${Math.random().toString(36).slice(2, 11)}`,
-    []
-  );
-
-  useEffect(() => {
-    const cleanDateLabel = (value: unknown, fallback: string) => {
-      if (!value) return fallback;
-      const text = String(value);
-      // Keep date labels clean by stripping time portion when present.
-      return text.includes('T') ? text.split('T')[0] : text;
-    };
-
-    const fetchProfitTrend = async () => {
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/metrics/profit-trend?period=${encodeURIComponent(period)}`
-        );
-        if (!response.ok) {
-          throw new Error(`Failed to fetch profit trend: ${response.status}`);
-        }
-
-        const responseText = await response.text();
-        let payload: unknown;
-        try {
-          payload = JSON.parse(responseText);
-        } catch (parseError) {
-          console.error('Profit trend response is not valid JSON:', parseError);
-          console.error('Raw /api/metrics/profit-trend response:', responseText);
-          setData([]);
-          return;
-        }
-
-        // GET /api/metrics/profit-trend: cumulative PnL per trade row — keys "date", "balance" only
-        const rawData = Array.isArray(payload) ? payload : [];
-        const formattedData = rawData.map((d: Record<string, unknown>, index: number) => ({
-          date: cleanDateLabel(d.date, `Point ${index + 1}`),
-          balance: parseFloat(String(d.balance ?? '')),
-        }));
-
-        const validData = formattedData.filter((d: { date: string; balance: number }) => Number.isFinite(d.balance));
-        setData(validData);
-      } catch (error) {
-        console.error('Failed to load /api/metrics/profit-trend', error);
-        setData([]);
-      }
-    };
-
-    fetchProfitTrend();
-  }, [period]);
-
-  const xTickFormatter = (v: string | number) =>
-    period === 'months' ? formatMonthAxisLabel(String(v)) : formatAxisDateLabel(String(v));
-
-  const { minY, maxY, zeroOffsetPct } = useMemo(() => profitTrendYRange(data), [data]);
-
-  return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col [contain:layout]">
-      <div className="mb-2 flex shrink-0 flex-wrap gap-1">
-        {PROFIT_TREND_TIME_SCALE_BUTTONS.map(({ key, label }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setPeriod(key)}
-            className={`rounded-md border px-2 py-0.5 text-[10px] font-medium transition-colors ${
-              period === key
-                ? 'border-yellow-500/60 bg-yellow-500/15 text-yellow-400'
-                : 'border-zinc-700 bg-zinc-900/60 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="min-h-0 min-w-0 flex-1">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 4, right: 6, left: 0, bottom: 0 }}>
-            <defs>
-              {/* y1→y2 = high→low balance; zeroOffsetPct = where $0 sits between maxY (top) and minY (bottom) */}
-              <linearGradient id={fillGradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#22c55e" stopOpacity={0.42} />
-                <stop offset={`${zeroOffsetPct}%`} stopColor="#22c55e" stopOpacity={0.04} />
-                <stop offset={`${zeroOffsetPct}%`} stopColor="#ef4444" stopOpacity={0.06} />
-                <stop offset="100%" stopColor="#ef4444" stopOpacity={0.38} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-            <XAxis
-              dataKey="date"
-              tick={{ fontSize: 10, fill: '#a1a1aa' }}
-              stroke="#52525b"
-              tickFormatter={(v) => xTickFormatter(v)}
-              interval="preserveStartEnd"
-              minTickGap={28}
-            />
-            <YAxis
-              domain={[minY, maxY]}
-              tick={{ fontSize: 10, fill: '#a1a1aa' }}
-              stroke="#52525b"
-              tickFormatter={(v) => formatCompactUsd(Number(v))}
-              width={52}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: '#18181b',
-                border: '1px solid #3f3f46',
-                borderRadius: '6px',
-                color: '#fff',
-              }}
-              labelFormatter={(label) => xTickFormatter(String(label))}
-              formatter={(value: number | string) => [
-                new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
-                  Number(value)
-                ),
-                'Balance',
-              ]}
-            />
-            <Area
-              type="monotone"
-              dataKey="balance"
-              stroke="#22c55e"
-              strokeWidth={2}
-              fill={`url(#${fillGradientId})`}
-              dot={false}
-              activeDot={{ r: 4, fill: '#22c55e', stroke: '#14532d', strokeWidth: 1 }}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-
-const DEFAULT_TEXT_FONT_SIZE = 24;
 
 export function DashboardCanvas({ 
   widgets, 
@@ -248,15 +54,20 @@ export function DashboardCanvas({
   onUpdateWidgetSize,
   onUpdateWidgetData,
   isWidgetsOpen,
-  isBrushActive
+  isBrushActive,
+  brushColor,
+  drawingDataUrl,
+  onDrawingChange,
+  canvasId,
 }: DashboardCanvasProps) {
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(DEFAULT_CANVAS_ZOOM);
   const [isPanning, setIsPanning] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
   const knownTextWidgetIdsRef = useRef(new Set<string>());
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const worldSurfaceRef = useRef<HTMLDivElement | null>(null);
   const hasCenteredScrollRef = useRef(false);
   const panStateRef = useRef<{
     active: boolean;
@@ -295,8 +106,8 @@ export function DashboardCanvas({
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 0.25, 3));
   const handleZoomOut = () => setZoom((prev) => Math.max(prev - 0.25, 0.25));
   const handleResetZoom = () => {
-    setZoom(1);
-    requestAnimationFrame(() => centerViewportOnOrigin(1));
+    setZoom(DEFAULT_CANVAS_ZOOM);
+    requestAnimationFrame(() => centerViewportOnOrigin(DEFAULT_CANVAS_ZOOM));
   };
 
   useEffect(() => {
@@ -399,8 +210,10 @@ export function DashboardCanvas({
     startPan(event);
   };
 
-  const handleTextSizeUpdate = (id: string, size: { width: number; height: number }) => {
-    onUpdateWidgetSize(id, size);
+  const handleTextElementUpdate = (updated: TextElementState) => {
+    onUpdateWidgetPosition(updated.id, { x: updated.x, y: updated.y });
+    onUpdateWidgetSize(updated.id, { width: updated.width, height: updated.height });
+    onUpdateWidgetData(updated.id, { text: updated.text });
   };
 
   const handleCanvasWheel = (event: React.WheelEvent<HTMLDivElement>) => {
@@ -449,11 +262,11 @@ export function DashboardCanvas({
       type,
       title: widgetTitles[type] || 'Widget',
       position: { x: randomX, y: randomY },
-      size: type === 'table' 
-        ? { width: 600, height: 500 } 
+      size: type === 'table'
+        ? scaleSize(600, 500)
         : type === 'portfolio-widget'
-        ? { width: 800, height: 600 }
-        : { width: 400, height: 320 },
+        ? scaleSize(800, 600)
+        : scaleSize(400, 320),
     };
     onAddWidget(newWidget);
   };
@@ -493,7 +306,7 @@ export function DashboardCanvas({
           return (
             <div className="flex h-full min-h-0 flex-col items-center justify-center overflow-hidden px-3 py-2">
               <div
-                className="flex max-w-full items-center justify-center gap-2 text-center text-2xl font-bold leading-tight"
+                className="flex max-w-full items-center justify-center gap-2 text-center text-xl font-bold leading-tight"
                 style={{ color }}
               >
                 {widget.data.isPositive && <TrendingUp className="h-7 w-7 shrink-0" aria-hidden />}
@@ -507,34 +320,6 @@ export function DashboardCanvas({
 
       case 'table':
         return <FtrReportTable onExtractMetric={handleExtractMetric} />;
-
-      case 'text-field': {
-        const data = (widget.data ?? {}) as CanvasTextData;
-        const text = data.text ?? '';
-        const fontSize = data.fontSize ?? DEFAULT_TEXT_FONT_SIZE;
-        const isSelected = selectedWidgetId === widget.id;
-        const isEditing = editingWidgetId === widget.id;
-        return (
-          <CanvasTextWidget
-            text={text}
-            fontSize={fontSize}
-            isSelected={isSelected}
-            isEditing={isEditing}
-            onSelect={() => {
-              setSelectedWidgetId(widget.id);
-              setEditingWidgetId(null);
-            }}
-            onStartEdit={() => {
-              setSelectedWidgetId(widget.id);
-              setEditingWidgetId(widget.id);
-            }}
-            onEndEdit={() => setEditingWidgetId(null)}
-            onTextChange={(next) =>
-              onUpdateWidgetData(widget.id, { ...data, text: next, fontSize })
-            }
-          />
-        );
-      }
 
       case 'portfolio-widget':
         return (
@@ -594,6 +379,7 @@ export function DashboardCanvas({
           onContextMenu={(e) => e.preventDefault()}
         >
           <div
+            ref={worldSurfaceRef}
             className="relative origin-top-left [contain:layout]"
             onMouseDown={handleWorldMouseDown}
             style={{
@@ -612,31 +398,44 @@ export function DashboardCanvas({
             }}
           >
             {widgets.map((widget) => {
-              const isText = widget.type === 'text-field';
-              const isSelected = selectedWidgetId === widget.id;
-              const isEditing = editingWidgetId === widget.id;
+              if (widget.type === 'text-field') {
+                const isSelected = selectedWidgetId === widget.id;
+                const isEditing = editingWidgetId === widget.id;
+                return (
+                  <CanvasTextElement
+                    key={widget.id}
+                    element={widgetToTextElement(widget)}
+                    isSelected={isSelected}
+                    isEditing={isEditing}
+                    canvasOrigin={{ x: WORLD_ORIGIN, y: WORLD_ORIGIN }}
+                    zoom={zoom}
+                    onSelect={() => {
+                      setSelectedWidgetId(widget.id);
+                      setEditingWidgetId(null);
+                    }}
+                    onStartEdit={() => {
+                      setSelectedWidgetId(widget.id);
+                      setEditingWidgetId(widget.id);
+                    }}
+                    onEndEdit={() => setEditingWidgetId(null)}
+                    onUpdate={handleTextElementUpdate}
+                    onRemove={(id) => {
+                      if (selectedWidgetId === id) clearTextSelection();
+                      onRemoveWidget(id);
+                    }}
+                  />
+                );
+              }
+
               return (
                 <FlexibleWidget
                   key={widget.id}
                   widget={widget}
-                  onRemove={(id) => {
-                    if (selectedWidgetId === id) clearTextSelection();
-                    onRemoveWidget(id);
-                  }}
+                  onRemove={onRemoveWidget}
                   onUpdatePosition={onUpdateWidgetPosition}
-                  onUpdateSize={isText ? handleTextSizeUpdate : onUpdateWidgetSize}
+                  onUpdateSize={onUpdateWidgetSize}
                   canvasOrigin={{ x: WORLD_ORIGIN, y: WORLD_ORIGIN }}
                   zoom={zoom}
-                  isSelected={isText ? isSelected : false}
-                  isEditing={isText ? isEditing : false}
-                  onSelect={
-                    isText
-                      ? () => {
-                          setSelectedWidgetId(widget.id);
-                          setEditingWidgetId(null);
-                        }
-                      : undefined
-                  }
                 >
                   {renderWidgetContent(widget)}
                 </FlexibleWidget>
@@ -645,11 +444,17 @@ export function DashboardCanvas({
           </div>
         </div>
 
-        <DrawingCanvas isActive={isBrushActive} viewportRef={scrollContainerRef} />
+        <DrawingCanvas
+          isActive={isBrushActive}
+          color={brushColor}
+          canvasId={canvasId}
+          drawingDataUrl={drawingDataUrl}
+          onDrawingChange={onDrawingChange}
+          viewportRef={scrollContainerRef}
+          worldRef={worldSurfaceRef}
+        />
 
-        <div className="pointer-events-none absolute bottom-3 left-3 z-50 rounded-lg border border-zinc-800/80 bg-zinc-900/80 px-2.5 py-1.5 text-[10px] text-zinc-500">
-          Pan: middle / right mouse · Space + drag · Wheel: zoom
-        </div>
+        <CanvasHelpHint />
       </div>
     </div>
   );

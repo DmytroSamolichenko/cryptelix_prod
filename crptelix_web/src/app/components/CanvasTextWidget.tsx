@@ -67,7 +67,7 @@ export function CanvasTextWidget({
     }
   };
 
-  const displayText = text.trim() || 'Додайте текст';
+  const displayText = text.trim() || 'Add text';
 
   return (
     <div
@@ -130,7 +130,7 @@ export function CanvasTextWidget({
 
       {isSelected && !isEditing && (
         <div className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-zinc-800/95 px-2 py-0.5 text-[10px] text-zinc-400 border border-zinc-700">
-          Подвійний клік — редагувати
+          Double-click to edit
         </div>
       )}
     </div>
