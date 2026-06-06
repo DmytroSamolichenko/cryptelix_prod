@@ -76,11 +76,11 @@ export function KeyMetricsCards() {
   const maxDdPct = stats?.max_drawdown_percent ?? 0;
 
   const cardClass =
-    'flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-3';
+    'flex min-h-[5.25rem] min-w-0 flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/95 p-3';
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden [contain:layout]">
-      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-2 grid-rows-3 gap-2 overflow-hidden">
+    <div className="w-full min-w-0">
+      <div className="grid grid-cols-2 gap-2">
         <div className={cardClass}>
           <div className="text-xs font-medium text-gray-400">Total Net Profit</div>
           <div

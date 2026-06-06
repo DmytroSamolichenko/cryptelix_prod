@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { AiBot } from './components/AiBot';
+import { AuthGate } from './components/auth/AuthGate';
 import { DashboardCanvas } from './components/DashboardCanvas';
 import { Widget } from './components/DashboardWidget';
 import { TopBar } from './components/TopBar';
 import { DataBase } from './components/DataBase';
 import { ConstructorBottomMenu } from './components/ConstructorBottomMenu';
 import { loadConstructorState, saveConstructorState } from './lib/dashboardStorage';
+import { DEFAULT_FONT_SIZE } from './components/CanvasTextElement';
 import { scalePx, scaleSize } from './lib/uiScale';
 
 interface Canvas {
@@ -24,6 +26,7 @@ function App() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isWidgetsOpen, setIsWidgetsOpen] = useState(false);
   const [isBrushActive, setIsBrushActive] = useState(false);
+  const [drawToolMode, setDrawToolMode] = useState<'brush' | 'eraser'>('brush');
   const [brushColor, setBrushColor] = useState(initialState.brushColor);
   const [drawingsByCanvasId, setDrawingsByCanvasId] = useState<Record<string, string>>(
     initialState.drawingsByCanvasId
@@ -83,7 +86,7 @@ function App() {
     );
   };
 
-  const handleUpdatePosition = (id: string, position: { x: number; y: number }) => {
+  const handleUpdatePosition = useCallback((id: string, position: { x: number; y: number }) => {
     setCanvases((prev) =>
       prev.map((c) =>
         c.id === activeCanvasId
@@ -94,9 +97,9 @@ function App() {
           : c
       )
     );
-  };
+  }, [activeCanvasId]);
 
-  const handleUpdateSize = (id: string, size: { width: number; height: number }) => {
+  const handleUpdateSize = useCallback((id: string, size: { width: number; height: number }) => {
     setCanvases((prev) =>
       prev.map((c) =>
         c.id === activeCanvasId
@@ -107,7 +110,7 @@ function App() {
           : c
       )
     );
-  };
+  }, [activeCanvasId]);
 
   const handleUpdateWidgetData = (id: string, data: Record<string, unknown>) => {
     setCanvases((prev) =>
@@ -138,10 +141,15 @@ function App() {
   }, [canvases, activeCanvasId, drawingsByCanvasId, brushColor]);
 
   return (
+    <AuthGate>
+      {(user, logout) => (
     <DndProvider backend={HTML5Backend}>
       <div className="h-screen flex flex-col overflow-hidden bg-black">
         {/* Top Bar */}
         <TopBar
+          userEmail={user.email}
+          userSignedInAt={user.signedInAt}
+          onLogout={logout}
           currentView={currentView}
           onViewChange={setCurrentView}
           onWidgetsToggle={() => setIsWidgetsOpen(!isWidgetsOpen)}
@@ -164,6 +172,7 @@ function App() {
                 onUpdateWidgetData={handleUpdateWidgetData}
                 isWidgetsOpen={isWidgetsOpen}
                 isBrushActive={isBrushActive}
+                drawToolMode={drawToolMode}
                 brushColor={brushColor}
                 canvasId={activeCanvasId}
                 drawingDataUrl={drawingsByCanvasId[activeCanvasId]}
@@ -190,6 +199,8 @@ function App() {
             onWidgetsToggle={() => setIsWidgetsOpen(!isWidgetsOpen)}
             onBrushToggle={() => setIsBrushActive((active) => !active)}
             isBrushActive={isBrushActive}
+            drawToolMode={drawToolMode}
+            onDrawToolModeChange={setDrawToolMode}
             brushColor={brushColor}
             onBrushColorChange={setBrushColor}
             onTextFieldAdd={() => {
@@ -199,7 +210,7 @@ function App() {
                 title: 'Text',
                 position: { x: scalePx(100), y: scalePx(100) },
                 size: scaleSize(280, 120),
-                data: { text: '', fontSize: scalePx(24) },
+                data: { text: '', html: '', fontSize: DEFAULT_FONT_SIZE },
               };
               handleAddWidget(newTextField);
             }}
@@ -238,6 +249,8 @@ function App() {
         )}
       </div>
     </DndProvider>
+      )}
+    </AuthGate>
   );
 }
 

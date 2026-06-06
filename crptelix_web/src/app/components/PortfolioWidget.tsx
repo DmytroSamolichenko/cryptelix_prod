@@ -396,7 +396,7 @@ export function PortfolioWidget() {
   };
 
   return (
-    <div className="h-full overflow-auto p-3 space-y-4">
+    <div className="space-y-4 p-3">
       {/* Row 1: General (Overall) */}
       <div className="space-y-2">
         <button

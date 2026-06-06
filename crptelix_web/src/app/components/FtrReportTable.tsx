@@ -282,21 +282,19 @@ export function FtrReportTable({ onExtractMetric }: FtrReportTableProps) {
   }, []);
 
   return (
-    <div className="scrollbar-hidden h-full min-h-0 w-full min-w-0 overflow-x-hidden overflow-y-auto pr-1">
-      <div className="space-y-0.5 pb-1">
-        {rows.map((row) => (
-          <FtrMetricRow
-            key={row.label}
-            label={row.label}
-            value={row.value}
-            isPositive={row.isPositive}
-            isNegative={row.isNegative}
-            onSpawn={() =>
-              onExtractMetric?.(row.label, row.value, row.isPositive, row.isNegative)
-            }
-          />
-        ))}
-      </div>
+    <div className="space-y-0.5 pb-1">
+      {rows.map((row) => (
+        <FtrMetricRow
+          key={row.label}
+          label={row.label}
+          value={row.value}
+          isPositive={row.isPositive}
+          isNegative={row.isNegative}
+          onSpawn={() =>
+            onExtractMetric?.(row.label, row.value, row.isPositive, row.isNegative)
+          }
+        />
+      ))}
     </div>
   );
 }

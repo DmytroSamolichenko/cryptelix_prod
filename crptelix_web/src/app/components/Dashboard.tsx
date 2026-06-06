@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { CanvasTextElement, type TextElementState } from './CanvasTextElement';
+import { CanvasTextElement, type TextElementState, DEFAULT_FONT_SIZE } from './CanvasTextElement';
 
 const CANVAS_SIZE = 10000;
 const CANVAS_ORIGIN = CANVAS_SIZE / 2;
@@ -8,6 +8,8 @@ const INITIAL_TEXT_ELEMENTS: TextElementState[] = [
   {
     id: 'text-1',
     text: 'Hello, Canva!',
+    html: 'Hello, Canva!',
+    fontSize: DEFAULT_FONT_SIZE,
     x: 120,
     y: 80,
     width: 280,
@@ -36,6 +38,8 @@ export function Dashboard() {
     const newElement: TextElementState = {
       id,
       text: '',
+      html: '',
+      fontSize: DEFAULT_FONT_SIZE,
       x: 100 + Math.floor(Math.random() * 200),
       y: 100 + Math.floor(Math.random() * 200),
       width: 280,
