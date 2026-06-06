@@ -53,21 +53,29 @@ function hasExchangeTradeId(deal: Deal): boolean {
   return e != null && String(e).trim() !== '';
 }
 
-function normalizeDateDisplay(raw: unknown): string {
+function toIsoDateString(raw: unknown): string {
   const value = String(raw ?? '').trim();
   if (!value) return '';
 
-  // Already ISO-like date
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
 
-  // dd.mm.yyyy -> yyyy-mm-dd (visual normalization only)
   const dotMatch = value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
   if (dotMatch) {
     const [, dd, mm, yyyy] = dotMatch;
     return `${yyyy}-${mm}-${dd}`;
   }
 
+  if (value.includes('T')) return value.slice(0, 10);
+
   return value;
+}
+
+function formatDateDisplay(raw: unknown): string {
+  const iso = toIsoDateString(raw);
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return String(raw ?? '').trim();
+
+  const [yyyy, mm, dd] = iso.split('-');
+  return `${dd}.${mm}.${yyyy}`;
 }
 
 /** API / system trades: lock all columns except notes when not manual */
@@ -998,8 +1006,8 @@ export function DataBase() {
                           <SideToggle value={String(deal.type || 'Long')} disabled />
                         </div>
                       ) : column.id === 'date' ? (
-                        <div className={getCellClassName(normalizeDateDisplay(deal[column.id] || ''), column.type)}>
-                          {normalizeDateDisplay(deal[column.id] || '')}
+                        <div className={getCellClassName(formatDateDisplay(deal[column.id] || ''), column.type)}>
+                          {formatDateDisplay(deal[column.id] || '')}
                         </div>
                       ) : (
                         <div className={getCellClassName(String(deal[column.id] ?? ''), column.type)}>
@@ -1021,7 +1029,7 @@ export function DataBase() {
                       <div className="relative">
                         <input
                           type="date"
-                          value={normalizeDateDisplay(deal[column.id] || '')}
+                          value={toIsoDateString(deal[column.id] || '')}
                           lang="en-CA"
                           onFocus={() => setActiveDateEditor(deal.id)}
                           onChange={(e) => updateDeal(deal.id, column.id, e.target.value)}
@@ -1037,7 +1045,7 @@ export function DataBase() {
                         />
                         {activeDateEditor !== deal.id && (
                           <span className="pointer-events-none absolute inset-0 flex items-center px-2 text-gray-300">
-                            {normalizeDateDisplay(deal[column.id] || '')}
+                            {formatDateDisplay(deal[column.id] || '')}
                           </span>
                         )}
                       </div>
