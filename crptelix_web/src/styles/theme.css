@@ -207,3 +207,94 @@
 .scrollbar-hidden::-webkit-scrollbar {
   display: none;
 }
+<<<<<<< Updated upstream
+=======
+
+/* Visible scrollbars for canvas widgets when content overflows */
+.widget-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 113, 122, 0.5) #09090b;
+  -ms-overflow-style: auto;
+}
+
+.widget-scrollbar::-webkit-scrollbar {
+  display: block;
+  width: 6px;
+  height: 6px;
+}
+
+.widget-scrollbar::-webkit-scrollbar-track {
+  background: #09090b;
+  border-radius: 9999px;
+  margin-block: 3px;
+}
+
+.widget-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.48);
+  border-radius: 9999px;
+  border: 1px solid #09090b;
+  min-height: 28px;
+}
+
+.widget-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(250, 204, 21, 0.58);
+}
+
+.widget-scrollbar::-webkit-scrollbar-corner {
+  background: #09090b;
+}
+
+/* Canvas rich-text widget */
+.canvas-text-display ul,
+.canvas-text-editable ul {
+  list-style-type: disc;
+  margin: 0.25em 0;
+  padding-left: 1.5em;
+}
+
+.canvas-text-display ol,
+.canvas-text-editable ol {
+  list-style-type: decimal;
+  margin: 0.25em 0;
+  padding-left: 1.5em;
+}
+
+.canvas-text-display a,
+.canvas-text-editable a {
+  color: #60a5fa;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.canvas-text-display b,
+.canvas-text-display strong,
+.canvas-text-editable b,
+.canvas-text-editable strong {
+  font-weight: 700;
+}
+
+.canvas-text-display i,
+.canvas-text-display em,
+.canvas-text-editable i,
+.canvas-text-editable em {
+  font-style: italic;
+}
+
+.canvas-text-display u,
+.canvas-text-editable u {
+  text-decoration: underline;
+}
+
+.canvas-text-display s,
+.canvas-text-display strike,
+.canvas-text-editable s,
+.canvas-text-editable strike {
+  text-decoration: line-through;
+}
+
+.cryptelix-alpha-badge {
+  font-family: 'Chakra Petch', sans-serif;
+  letter-spacing: 0.12em;
+  -webkit-font-smoothing: antialiased;
+}
+>>>>>>> Stashed changes

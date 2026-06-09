@@ -8,25 +8,18 @@ interface ConnectBrokerModalProps {
   onConnect: () => void;
 }
 
-const brokers = [
-  {
-    name: 'Interactive Brokers',
-    exchangeId: null,
-    description: 'Professional trading platform with global access',
-    logoUrl: '/broker-logos/interactive-brokers.png',
-    logoFallback: 'IB',
-    features: ['Stocks', 'Options', 'Futures', 'Forex'],
-    popular: true,
-  },
-  {
-    name: 'TD Ameritrade',
-    exchangeId: null,
-    description: 'Comprehensive trading and research platform',
-    logoUrl: '/broker-logos/td-ameritrade.png',
-    logoFallback: 'TD',
-    features: ['Stocks', 'ETFs', 'Options', 'Crypto'],
-    popular: true,
-  },
+interface BrokerOption {
+  name: string;
+  exchangeId: string | null;
+  description: string;
+  logoUrl: string;
+  logoFallback: string;
+  features: string[];
+  popular?: boolean;
+  comingSoon: boolean;
+}
+
+const brokers: BrokerOption[] = [
   {
     name: 'Binance',
     exchangeId: 'binance',
@@ -35,35 +28,75 @@ const brokers = [
     logoFallback: 'BN',
     features: ['Spot', 'Futures', 'Margin', 'Staking'],
     popular: true,
+    comingSoon: false,
   },
   {
-    name: 'Coinbase Pro',
+    name: 'Coinbase',
     exchangeId: 'coinbase',
     description: 'Advanced crypto trading platform',
     logoUrl: '/broker-logos/coinbase.png',
     logoFallback: 'CB',
     features: ['Crypto', 'Advanced Orders', 'API Trading'],
-    popular: false,
+    comingSoon: true,
   },
   {
-    name: 'Kraken',
-    exchangeId: 'kraken',
-    description: 'Secure cryptocurrency exchange',
-    logoUrl: '/broker-logos/kraken.png',
-    logoFallback: 'KR',
-    features: ['Spot', 'Futures', 'Staking', 'NFTs'],
-    popular: false,
+    name: 'Jupiter Exchange',
+    exchangeId: null,
+    description: 'Solana DEX aggregator for optimal swap routes',
+    logoUrl: '/broker-logos/jupiter.png',
+    logoFallback: 'JU',
+    features: ['Swaps', 'Spot', 'DeFi', 'Solana'],
+    comingSoon: true,
   },
   {
-    name: 'Alpaca',
-    exchangeId: 'alpaca',
-    description: 'Commission-free API trading',
-    logoUrl: '/broker-logos/alpaca.png',
-    logoFallback: 'AL',
-    features: ['Stocks', 'API', 'Algo Trading', 'Paper Trading'],
-    popular: false,
+    name: 'MEXC',
+    exchangeId: null,
+    description: 'Global crypto exchange with wide altcoin listings',
+    logoUrl: '/broker-logos/mexc.png',
+    logoFallback: 'MX',
+    features: ['Spot', 'Futures', 'Margin', 'Altcoins'],
+    comingSoon: true,
+  },
+  {
+    name: 'ByBit',
+    exchangeId: null,
+    description: 'Crypto derivatives and spot trading platform',
+    logoUrl: '/broker-logos/bybit.png',
+    logoFallback: 'BB',
+    features: ['Spot', 'Futures', 'Options', 'Copy Trading'],
+    comingSoon: true,
   },
 ];
+
+function BrokerLogo({
+  name,
+  logoUrl,
+  logoFallback,
+}: {
+  name: string;
+  logoUrl: string;
+  logoFallback: string;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  return (
+    <div className="flex h-14 w-14 shrink-0 items-center justify-center">
+      {!failed ? (
+        <img
+          src={logoUrl}
+          alt={`${name} logo`}
+          className="h-14 w-14 object-contain"
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <span className="flex h-14 w-14 items-center justify-center text-sm font-bold text-zinc-400">
+          {logoFallback}
+        </span>
+      )}
+    </div>
+  );
+}
 
 export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBrokerModalProps) {
   const API_BASE = 'http://localhost:8000';
@@ -96,6 +129,8 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
   if (!isOpen) return null;
 
   const handleBrokerSelect = (brokerName: string) => {
+    const broker = brokers.find((b) => b.name === brokerName);
+    if (broker?.comingSoon) return;
     setSelectedBroker(brokerName);
     setStatusMessage(null);
   };
@@ -279,43 +314,44 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
                     broker.exchangeId != null &&
                     connectedExchangeIds.has(broker.exchangeId);
                   const isSelected = selectedBroker === broker.name;
+                  const isComingSoon = broker.comingSoon;
 
                   return (
                   <button
                     key={broker.name}
+                    type="button"
+                    disabled={isComingSoon}
                     onClick={() => handleBrokerSelect(broker.name)}
                     className={cn(
                       'relative group w-full p-4 rounded-xl border transition-all text-left',
-                      isConnected
-                        ? 'bg-green-500/10 border-green-500/50 shadow-[0_0_18px_rgba(34,197,94,0.12)]'
-                        : isSelected
-                          ? 'bg-yellow-500/10 border-yellow-500/50'
-                          : 'bg-zinc-800/50 border-zinc-700/50 hover:bg-zinc-800 hover:border-yellow-500/30'
+                      isComingSoon
+                        ? 'cursor-not-allowed border-zinc-800/80 bg-zinc-900/40'
+                        : isConnected
+                          ? 'bg-green-500/10 border-green-500/50 shadow-[0_0_18px_rgba(34,197,94,0.12)]'
+                          : isSelected
+                            ? 'bg-yellow-500/10 border-yellow-500/50'
+                            : 'bg-zinc-800/50 border-zinc-700/50 hover:bg-zinc-800 hover:border-yellow-500/30'
                     )}
                   >
                     <div className="flex items-center gap-4">
-                      <div className="h-14 w-14 shrink-0 flex items-center justify-center">
-                        <img
-                          src={broker.logoUrl}
-                          alt={`${broker.name} logo`}
-                          className="h-14 w-14 object-contain"
-                          loading="lazy"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                            const fallback = e.currentTarget.nextElementSibling as HTMLSpanElement | null;
-                            if (fallback) fallback.style.display = 'flex';
-                          }}
-                        />
-                        <span className="hidden h-14 w-14 items-center justify-center rounded-lg bg-zinc-800 text-sm font-bold text-zinc-300">
-                          {broker.logoFallback}
-                        </span>
-                      </div>
+                      <BrokerLogo
+                        name={broker.name}
+                        logoUrl={broker.logoUrl}
+                        logoFallback={broker.logoFallback}
+                      />
                       
                       {/* Info */}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-semibold text-white text-sm">{broker.name}</h4>
-                          {broker.popular && (
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <h4 className={cn('font-semibold text-sm', isComingSoon ? 'text-zinc-400' : 'text-white')}>
+                            {broker.name}
+                          </h4>
+                          {isComingSoon && (
+                            <span className="px-1.5 py-0.5 bg-zinc-800 text-zinc-400 text-[10px] font-semibold tracking-wide rounded border border-zinc-600">
+                              COMING SOON
+                            </span>
+                          )}
+                          {!isComingSoon && broker.popular && (
                             <span className="px-1.5 py-0.5 bg-yellow-500/20 text-yellow-500 text-xs font-medium rounded border border-yellow-500/30">
                               Popular
                             </span>
@@ -325,19 +361,26 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
                               Connected
                             </span>
                           )}
-                          {isSelected && !isConnected && (
+                          {isSelected && !isConnected && !isComingSoon && (
                             <CheckCircle2 className="w-4 h-4 text-yellow-500 ml-auto" />
                           )}
                           {isConnected && (
                             <CheckCircle2 className="w-4 h-4 text-green-400 ml-auto shrink-0" />
                           )}
                         </div>
-                        <p className="text-xs text-gray-400 mb-2">{broker.description}</p>
+                        <p className={cn('text-xs mb-2', isComingSoon ? 'text-zinc-500' : 'text-gray-400')}>
+                          {broker.description}
+                        </p>
                         <div className="flex flex-wrap gap-1">
                           {broker.features.map((feature) => (
                             <span
                               key={feature}
-                              className="px-2 py-0.5 bg-zinc-900/80 text-gray-400 text-xs rounded border border-zinc-700"
+                              className={cn(
+                                'px-2 py-0.5 text-xs rounded border',
+                                isComingSoon
+                                  ? 'border-zinc-800 bg-zinc-900/50 text-zinc-500'
+                                  : 'bg-zinc-900/80 text-gray-400 border-zinc-700'
+                              )}
                             >
                               {feature}
                             </span>
