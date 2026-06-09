@@ -24,6 +24,8 @@ interface Column {
 interface Deal {
   id: string;
   isManual?: boolean;
+  /** WAC journal trade from Binance sync */
+  isWacTrade?: boolean;
   /** Set when trade is tied to an exchange row; used with isManual for edit locking */
   exchangeTradeId?: string | null;
   [key: string]: any;
@@ -268,10 +270,15 @@ function apiTradeToDeal(api: ApiTrade, index: number, customColumns: CustomColum
         ? formattedPnl
         : '';
   const dateOnly = api.date ? api.date.slice(0, 10) : '';
+  const isWacTrade =
+    (api.exchange_trade_id ?? '').startsWith('wac-') ||
+    (api.custom_fields as Record<string, unknown> | undefined)?.aggregation_method === 'wac';
+
   const base: Deal = {
     id: api.id,
     isManual: api.is_manual ?? true,
     exchangeTradeId: api.exchange_trade_id ?? null,
+    isWacTrade,
     date: dateOnly,
     pair: api.pair ?? '',
     type: api.side ?? '',
@@ -436,6 +443,14 @@ export function DataBase() {
 
   useEffect(() => {
     fetchTrades();
+  }, [fetchTrades]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      void fetchTrades();
+    };
+    window.addEventListener('cryptelix:trades-synced', onSynced);
+    return () => window.removeEventListener('cryptelix:trades-synced', onSynced);
   }, [fetchTrades]);
 
   const activeSheet = sheet;
@@ -1008,6 +1023,15 @@ export function DataBase() {
                       ) : column.id === 'date' ? (
                         <div className={getCellClassName(formatDateDisplay(deal[column.id] || ''), column.type)}>
                           {formatDateDisplay(deal[column.id] || '')}
+                        </div>
+                      ) : column.id === 'pair' ? (
+                        <div className="flex items-center gap-1.5 px-2 py-1 min-w-0">
+                          <span className="truncate text-gray-300">{String(deal.pair ?? '')}</span>
+                          {deal.isWacTrade && (
+                            <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-500/90 bg-yellow-500/10 border border-yellow-500/30 rounded">
+                              Binance
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <div className={getCellClassName(String(deal[column.id] ?? ''), column.type)}>
