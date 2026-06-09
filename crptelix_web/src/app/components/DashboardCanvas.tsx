@@ -5,7 +5,7 @@ import { ZoomIn, ZoomOut } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { DrawingCanvas } from './DrawingCanvas';
-import { CanvasTextElement, type TextElementState, DEFAULT_FONT_SIZE } from './CanvasTextElement';
+import { CanvasTextElement, type TextElementState, DEFAULT_FONT_SIZE, normalizeCommittedHtml } from './CanvasTextElement';
 import { CanvasWidgetBody } from './CanvasWidgetBody';
 import { DEFAULT_CANVAS_ZOOM, scaleSize } from '../lib/uiScale';
 import { CanvasHelpHint } from './CanvasHelpHint';
@@ -72,7 +72,13 @@ function scrollForWorldPoint(
 
 function widgetToTextElement(widget: Widget): TextElementState {
   const data = (widget.data ?? {}) as { text?: string; html?: string; fontSize?: number };
-  const html = data.html ?? (data.text ? data.text.replace(/\n/g, '<br>') : '');
+  const rawHtml = data.html ?? '';
+  const htmlFromText = data.text ? data.text.replace(/\n/g, '<br>') : '';
+  const sourceHtml =
+    rawHtml.replace(/<[^>]+>/g, '').replace(/&nbsp;/gi, ' ').trim().length > 0
+      ? rawHtml
+      : htmlFromText;
+  const html = normalizeCommittedHtml(sourceHtml);
   return {
     id: widget.id,
     text: data.text ?? '',

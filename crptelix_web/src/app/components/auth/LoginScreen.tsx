@@ -115,7 +115,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
           </form>
 
           <p className="mt-6 text-center text-xs leading-relaxed text-zinc-500">
-            Preview sign-in — any valid email works. Your session is saved on this browser.
+          Alpha Test | Release - June 2026 - Limited Access
           </p>
         </div>
       </motion.div>

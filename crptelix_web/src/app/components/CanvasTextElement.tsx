@@ -123,30 +123,86 @@ function nearestFontSize(size: number): number {
   );
 }
 
+const RICH_TEXT_SELECTOR =
+  'b, strong, i, em, u, s, strike, a, ul, ol, li, span[style*="font"], span[style*="color"]';
+
+function stripEmptyBlocks(root: HTMLElement) {
+  root.querySelectorAll('div, p').forEach((node) => {
+    const el = node as HTMLElement;
+    const text = (el.textContent ?? '').replace(/\u00a0/g, ' ').trim();
+    const onlyBreak =
+      el.childNodes.length === 1 &&
+      el.firstChild?.nodeName === 'BR';
+    if (text.length === 0 && (onlyBreak || el.innerHTML.trim() === '')) {
+      el.remove();
+    }
+  });
+}
+
+function dedupeIdenticalBlocks(root: HTMLElement) {
+  const blocks = [...root.children].filter(
+    (node) => node.nodeType === Node.ELEMENT_NODE
+  ) as HTMLElement[];
+  for (let i = blocks.length - 1; i > 0; i--) {
+    const current = (blocks[i].textContent ?? '').replace(/\u00a0/g, ' ').trim();
+    const previous = (blocks[i - 1].textContent ?? '').replace(/\u00a0/g, ' ').trim();
+    if (current.length > 0 && current === previous) {
+      blocks[i].remove();
+    }
+  }
+}
+
+export function normalizeCommittedHtml(html: string): string {
+  if (isHtmlEmpty(html)) return '';
+
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  stripEmptyBlocks(container);
+  dedupeIdenticalBlocks(container);
+
+  const plain = (container.textContent ?? '').replace(/\u00a0/g, ' ').trim();
+  if (!plain) return '';
+
+  const hasRichFormatting = container.querySelector(RICH_TEXT_SELECTOR) !== null;
+  if (!hasRichFormatting) {
+    return plain.replace(/\n/g, '<br>');
+  }
+
+  return container.innerHTML;
+}
+
 function TextFormatToolbar({
   fontSize,
   onFontSizeChange,
   onFormat,
   onInsertLink,
+  onToolbarPointerDown,
 }: {
   fontSize: number;
   onFontSizeChange: (size: number) => void;
   onFormat: (command: string) => void;
   onInsertLink: () => void;
+  onToolbarPointerDown?: () => void;
 }) {
   const currentIndex = FONT_SIZE_OPTIONS.indexOf(fontSize);
   const canDecrease = currentIndex > 0;
   const canIncrease = currentIndex >= 0 && currentIndex < FONT_SIZE_OPTIONS.length - 1;
+  const selectValue = currentIndex >= 0 ? fontSize : nearestFontSize(fontSize);
+
+  const keepEditorFocused = (e: React.SyntheticEvent) => {
+    e.stopPropagation();
+    onToolbarPointerDown?.();
+  };
 
   return (
     <div
       className="text-format-toolbar absolute left-0 top-full z-50 mt-2 flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-0.5 rounded-lg border border-zinc-700 bg-zinc-900/95 px-1.5 py-1 shadow-xl backdrop-blur-sm"
-      onMouseDown={(e) => e.preventDefault()}
     >
       <button
         type="button"
         title="Decrease font size"
         disabled={!canDecrease}
+        onMouseDown={(e) => e.preventDefault()}
         onClick={() => canDecrease && onFontSizeChange(FONT_SIZE_OPTIONS[currentIndex - 1])}
         className="flex h-7 w-7 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-30"
       >
@@ -154,7 +210,9 @@ function TextFormatToolbar({
       </button>
 
       <select
-        value={fontSize}
+        value={selectValue}
+        onPointerDown={keepEditorFocused}
+        onMouseDown={keepEditorFocused}
         onChange={(e) => onFontSizeChange(Number(e.target.value))}
         className="h-7 max-w-[52px] cursor-pointer rounded border border-zinc-700 bg-zinc-800 px-1 text-xs text-zinc-200 outline-none"
         title="Font size"
@@ -170,6 +228,7 @@ function TextFormatToolbar({
         type="button"
         title="Increase font size"
         disabled={!canIncrease}
+        onMouseDown={(e) => e.preventDefault()}
         onClick={() => canIncrease && onFontSizeChange(FONT_SIZE_OPTIONS[currentIndex + 1])}
         className="flex h-7 w-7 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-30"
       >
@@ -219,6 +278,7 @@ function ToolbarButton({
     <button
       type="button"
       title={title}
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       className="flex h-7 w-7 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
     >
@@ -245,6 +305,10 @@ export function CanvasTextElement({
   const interactionRef = useRef<InteractionMode>('idle');
   const editableRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const draftHtmlRef = useRef(html);
+  const isEditingRef = useRef(isEditing);
+  const suppressBlurCommitRef = useRef(false);
+  const editEndCommittedRef = useRef(false);
   const saveTimerRef = useRef<number | undefined>(undefined);
   const pendingCommandRef = useRef<string | null>(null);
   const pendingLinkRef = useRef(false);
@@ -262,13 +326,27 @@ export function CanvasTextElement({
 
   const displayX = canvasOrigin.x + x;
   const displayY = canvasOrigin.y + y;
-  const isEmpty = isHtmlEmpty(html) && !text.trim();
+  const committedHtml = normalizeCommittedHtml(html);
+  const isEmpty = isHtmlEmpty(committedHtml);
   const normalizedFontSize = nearestFontSize(fontSize);
   const [showPlaceholder, setShowPlaceholder] = useState(isEmpty);
 
   useEffect(() => {
+    isEditingRef.current = isEditing;
+    if (isEditing) {
+      editEndCommittedRef.current = false;
+    }
+  }, [isEditing]);
+
+  useEffect(() => {
+    draftHtmlRef.current = html;
+  }, [html]);
+
+  useEffect(() => {
     if (isEditing) {
       setShowPlaceholder(isEmpty);
+    } else {
+      setShowPlaceholder(false);
     }
   }, [isEditing, isEmpty]);
 
@@ -286,27 +364,54 @@ export function CanvasTextElement({
     [id, normalizedFontSize, x, y, width, height]
   );
 
+  const readDraftHtml = useCallback(() => {
+    const el = editableRef.current;
+    const raw = el?.innerHTML ?? draftHtmlRef.current;
+    return normalizeCommittedHtml(raw);
+  }, []);
+
+  const commitTextWithHtml = useCallback(
+    (rawHtml: string, endEdit: boolean) => {
+      const nextHtml = normalizeCommittedHtml(rawHtml);
+      draftHtmlRef.current = nextHtml;
+      setShowPlaceholder(isHtmlEmpty(nextHtml));
+      if (!endEdit || !editEndCommittedRef.current) {
+        onUpdate(buildState(nextHtml));
+      }
+      if (!endEdit) return;
+      if (editEndCommittedRef.current) return;
+      editEndCommittedRef.current = true;
+      onEndEdit();
+    },
+    [buildState, onEndEdit, onUpdate]
+  );
+
   const commitText = useCallback(
     (endEdit: boolean) => {
-      const el = editableRef.current;
-      const nextHtml = el?.innerHTML ?? html;
-      onUpdate(buildState(nextHtml));
-      if (endEdit) onEndEdit();
+      commitTextWithHtml(readDraftHtml(), endEdit);
     },
-    [buildState, html, onEndEdit, onUpdate]
+    [commitTextWithHtml, readDraftHtml]
   );
+
+  const persistDraft = useCallback(() => {
+    const nextHtml = readDraftHtml();
+    draftHtmlRef.current = nextHtml;
+    onUpdate(buildState(nextHtml));
+  }, [buildState, onUpdate, readDraftHtml]);
 
   const scheduleSave = useCallback(() => {
     window.clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = window.setTimeout(() => commitText(false), SAVE_DEBOUNCE_MS);
-  }, [commitText]);
+    saveTimerRef.current = window.setTimeout(() => persistDraft(), SAVE_DEBOUNCE_MS);
+  }, [persistDraft]);
 
   useEffect(() => {
     if (!isEditing || !editableRef.current) return;
     const el = editableRef.current;
-    el.innerHTML = html || '';
+    const seedHtml = normalizeCommittedHtml(html || '');
+    el.innerHTML = seedHtml;
+    draftHtmlRef.current = seedHtml;
     applyFontSizeToBlock(el, normalizedFontSize);
-    setShowPlaceholder(isHtmlEmpty(el.innerHTML));
+    setShowPlaceholder(isHtmlEmpty(seedHtml));
     el.focus();
 
     if (pendingCommandRef.current) {
@@ -320,7 +425,7 @@ export function CanvasTextElement({
         execFormat('createLink', url.trim());
         scheduleSave();
       }
-    } else {
+    } else if (!isHtmlEmpty(seedHtml)) {
       const range = document.createRange();
       range.selectNodeContents(el);
       range.collapse(false);
@@ -333,6 +438,29 @@ export function CanvasTextElement({
   useEffect(() => {
     return () => window.clearTimeout(saveTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    if (!isEditing) return;
+
+    const handleOutsidePointerDown = (event: Event) => {
+      const root = rootRef.current;
+      const target = event.target as Node | null;
+      if (!root || !target) return;
+      if (root.contains(target)) return;
+      if ((event.target as HTMLElement).closest?.('.text-format-toolbar')) return;
+      if (editEndCommittedRef.current) return;
+
+      window.clearTimeout(saveTimerRef.current);
+      commitText(true);
+    };
+
+    document.addEventListener('pointerdown', handleOutsidePointerDown, true);
+    document.addEventListener('touchstart', handleOutsidePointerDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
+      document.removeEventListener('touchstart', handleOutsidePointerDown, true);
+    };
+  }, [isEditing, commitText]);
 
   useEffect(() => {
     if (!isInteracting) return;
@@ -472,17 +600,34 @@ export function CanvasTextElement({
   };
 
   const handleBlur = (e: React.FocusEvent<HTMLDivElement>) => {
-    if (!isEditing) return;
+    if (!isEditingRef.current) return;
+    if (editEndCommittedRef.current) return;
+
     const related = e.relatedTarget as HTMLElement | null;
     if (related?.closest('.text-format-toolbar')) return;
-    window.clearTimeout(saveTimerRef.current);
-    commitText(true);
+
+    const capturedHtml = readDraftHtml();
+
+    window.setTimeout(() => {
+      if (editEndCommittedRef.current) return;
+      if (suppressBlurCommitRef.current) return;
+      if (document.activeElement?.closest('.text-format-toolbar')) return;
+      window.clearTimeout(saveTimerRef.current);
+      commitTextWithHtml(capturedHtml, true);
+    }, 0);
+  };
+
+  const handleToolbarPointerDown = () => {
+    suppressBlurCommitRef.current = true;
+    window.setTimeout(() => {
+      suppressBlurCommitRef.current = false;
+    }, 300);
   };
 
   const handleInput = () => {
     const el = editableRef.current;
+    if (el) draftHtmlRef.current = el.innerHTML;
     setShowPlaceholder(!el || isHtmlEmpty(el.innerHTML));
-    scheduleSave();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -508,6 +653,7 @@ export function CanvasTextElement({
   };
 
   const handleFontSizeChange = (size: number) => {
+    const nextSize = nearestFontSize(size);
     const el = editableRef.current;
 
     if (isEditing && el) {
@@ -520,16 +666,19 @@ export function CanvasTextElement({
         !selection.getRangeAt(0).collapsed;
 
       if (hasSelection) {
-        applyFontSizeToSelection(size);
+        applyFontSizeToSelection(nextSize);
       } else {
-        applyFontSizeToBlock(el, size);
+        applyFontSizeToBlock(el, nextSize);
       }
-      onUpdate(buildState(el.innerHTML, size));
+      const nextHtml = normalizeCommittedHtml(el.innerHTML);
+      draftHtmlRef.current = nextHtml;
+      setShowPlaceholder(isHtmlEmpty(nextHtml));
+      onUpdate(buildState(nextHtml, nextSize));
       scheduleSave();
       return;
     }
 
-    onUpdate({ id, text, html, fontSize: size, x, y, width, height });
+    onUpdate({ id, text, html: committedHtml, fontSize: nextSize, x, y, width, height });
   };
 
   const handleInsertLink = () => {
@@ -626,12 +775,9 @@ export function CanvasTextElement({
             } ${isEmpty ? 'text-zinc-500' : 'text-gray-300'}`}
             style={contentStyle}
             onMouseDown={handleActivate}
+            {...(!isEmpty ? { dangerouslySetInnerHTML: { __html: committedHtml } } : {})}
           >
-            {isEmpty ? (
-              'Type something'
-            ) : (
-              <div dangerouslySetInnerHTML={{ __html: html || text }} />
-            )}
+            {isEmpty ? 'Type something' : null}
           </div>
         )}
       </div>
@@ -651,6 +797,7 @@ export function CanvasTextElement({
             onFontSizeChange={handleFontSizeChange}
             onFormat={handleFormat}
             onInsertLink={handleInsertLink}
+            onToolbarPointerDown={handleToolbarPointerDown}
           />
         </>
       )}
