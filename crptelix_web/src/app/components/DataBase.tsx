@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Download, Upload, X, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Download, Upload, X, Loader2, ChevronDown } from 'lucide-react';
 import { AddTradeModal } from './AddTradeModal';
 import { AddColumnModal } from './AddColumnModal';
 import { SideToggle } from './SideToggle';
 import { DealBaseSummaryBar } from './DealBaseSummaryBar';
 import { formatNumber } from './ui/utils';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 
 type ColumnType = 'text' | 'number' | 'percentage';
 
@@ -18,6 +24,8 @@ interface Column {
 interface Deal {
   id: string;
   isManual?: boolean;
+  /** WAC journal trade from Binance sync */
+  isWacTrade?: boolean;
   /** Set when trade is tied to an exchange row; used with isManual for edit locking */
   exchangeTradeId?: string | null;
   [key: string]: any;
@@ -47,21 +55,29 @@ function hasExchangeTradeId(deal: Deal): boolean {
   return e != null && String(e).trim() !== '';
 }
 
-function normalizeDateDisplay(raw: unknown): string {
+function toIsoDateString(raw: unknown): string {
   const value = String(raw ?? '').trim();
   if (!value) return '';
 
-  // Already ISO-like date
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
 
-  // dd.mm.yyyy -> yyyy-mm-dd (visual normalization only)
   const dotMatch = value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
   if (dotMatch) {
     const [, dd, mm, yyyy] = dotMatch;
     return `${yyyy}-${mm}-${dd}`;
   }
 
+  if (value.includes('T')) return value.slice(0, 10);
+
   return value;
+}
+
+function formatDateDisplay(raw: unknown): string {
+  const iso = toIsoDateString(raw);
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return String(raw ?? '').trim();
+
+  const [yyyy, mm, dd] = iso.split('-');
+  return `${dd}.${mm}.${yyyy}`;
 }
 
 /** API / system trades: lock all columns except notes when not manual */
@@ -254,10 +270,15 @@ function apiTradeToDeal(api: ApiTrade, index: number, customColumns: CustomColum
         ? formattedPnl
         : '';
   const dateOnly = api.date ? api.date.slice(0, 10) : '';
+  const isWacTrade =
+    (api.exchange_trade_id ?? '').startsWith('wac-') ||
+    (api.custom_fields as Record<string, unknown> | undefined)?.aggregation_method === 'wac';
+
   const base: Deal = {
     id: api.id,
     isManual: api.is_manual ?? true,
     exchangeTradeId: api.exchange_trade_id ?? null,
+    isWacTrade,
     date: dateOnly,
     pair: api.pair ?? '',
     type: api.side ?? '',
@@ -335,6 +356,33 @@ export function DataBase() {
     startWidth: 0,
   });
   const [exporting, setExporting] = useState(false);
+
+  const handleExportTrades = useCallback(async () => {
+    if (!sheet.deals.length || exporting) return;
+    setExporting(true);
+    try {
+      const res = await fetch('http://localhost:8000/api/v1/trades/export');
+      if (!res.ok) {
+        const text = await res.text();
+        console.error('Failed to export trades', res.status, res.statusText, text);
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'cryptelix_trades.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Error exporting trades', e);
+    } finally {
+      setExporting(false);
+    }
+  }, [sheet.deals.length, exporting]);
+
   const [aiAnalyzeBusy, setAiAnalyzeBusy] = useState<Record<string, boolean>>({});
   const [aiAnalyzeError, setAiAnalyzeError] = useState<Record<string, boolean>>({});
   const [aiInsightsExpanded, setAiInsightsExpanded] = useState<Record<string, boolean>>({});
@@ -395,6 +443,14 @@ export function DataBase() {
 
   useEffect(() => {
     fetchTrades();
+  }, [fetchTrades]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      void fetchTrades();
+    };
+    window.addEventListener('cryptelix:trades-synced', onSynced);
+    return () => window.removeEventListener('cryptelix:trades-synced', onSynced);
   }, [fetchTrades]);
 
   const activeSheet = sheet;
@@ -725,59 +781,66 @@ export function DataBase() {
       </div>
 
       {/* Toolbar */}
-      <div className="border-b border-zinc-800/50 bg-zinc-950/50 px-4 py-2 flex items-center gap-2">
-        <button
-          onClick={() => setShowAddTradeModal(true)}
-          className="px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-lg transition-all flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          Add Row
-        </button>
-        <button
-          onClick={() => setShowAddColumnModal(true)}
-          className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-gray-300 text-sm font-medium rounded-lg transition-all flex items-center gap-2 border border-zinc-700"
-        >
-          <Plus className="w-4 h-4" />
-          Add Column
-        </button>
-        
-        <div className="flex-1" />
-        <button className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-gray-300 text-sm rounded-lg transition-all flex items-center gap-2 border border-zinc-700">
-          <Upload className="w-4 h-4" />
-          Import
-        </button>
-        <button
-          onClick={async () => {
-            if (!sheet.deals.length || exporting) return;
-            setExporting(true);
-            try {
-              const res = await fetch('http://localhost:8000/api/v1/trades/export');
-              if (!res.ok) {
-                const text = await res.text();
-                console.error('Failed to export trades', res.status, res.statusText, text);
-                return;
-              }
-              const blob = await res.blob();
-              const url = window.URL.createObjectURL(blob);
-              const link = document.createElement('a');
-              link.href = url;
-              link.download = 'cryptelix_trades.xlsx';
-              document.body.appendChild(link);
-              link.click();
-              link.remove();
-              window.URL.revokeObjectURL(url);
-            } catch (e) {
-              console.error('Error exporting trades', e);
-            } finally {
-              setExporting(false);
-            }
-          }}
-          disabled={!sheet.deals.length || exporting}
-          className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-900 disabled:opacity-60 text-gray-300 text-sm rounded-lg transition-all flex items-center gap-2 border border-zinc-700 disabled:cursor-not-allowed"
-        >
-          <Download className="w-4 h-4" />
-          {exporting ? 'Exporting...' : 'Export'}
-        </button>
+      <div className="border-b border-zinc-800/50 bg-zinc-950/50 px-4 py-2 flex items-center justify-end gap-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-gray-300 text-sm font-medium rounded-lg transition-all flex items-center gap-2 border border-zinc-700"
+            >
+              Table Editor
+              <ChevronDown className="w-4 h-4 opacity-70" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="min-w-[10.5rem] border-zinc-700 bg-zinc-900 text-gray-200"
+          >
+            <DropdownMenuItem
+              className="cursor-pointer focus:bg-zinc-800 focus:text-white"
+              onSelect={() => setShowAddTradeModal(true)}
+            >
+              <Plus className="w-4 h-4" />
+              Add Row
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="cursor-pointer focus:bg-zinc-800 focus:text-white"
+              onSelect={() => setShowAddColumnModal(true)}
+            >
+              <Plus className="w-4 h-4" />
+              Add Column
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-gray-300 text-sm font-medium rounded-lg transition-all flex items-center gap-2 border border-zinc-700"
+            >
+              Import/Export
+              <ChevronDown className="w-4 h-4 opacity-70" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="min-w-[10.5rem] border-zinc-700 bg-zinc-900 text-gray-200"
+          >
+            <DropdownMenuItem className="cursor-pointer focus:bg-zinc-800 focus:text-white">
+              <Upload className="w-4 h-4" />
+              Import
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="cursor-pointer focus:bg-zinc-800 focus:text-white disabled:opacity-50"
+              disabled={!sheet.deals.length || exporting}
+              onSelect={() => void handleExportTrades()}
+            >
+              <Download className="w-4 h-4" />
+              {exporting ? 'Exporting...' : 'Export'}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Table */}
@@ -958,8 +1021,17 @@ export function DataBase() {
                           <SideToggle value={String(deal.type || 'Long')} disabled />
                         </div>
                       ) : column.id === 'date' ? (
-                        <div className={getCellClassName(normalizeDateDisplay(deal[column.id] || ''), column.type)}>
-                          {normalizeDateDisplay(deal[column.id] || '')}
+                        <div className={getCellClassName(formatDateDisplay(deal[column.id] || ''), column.type)}>
+                          {formatDateDisplay(deal[column.id] || '')}
+                        </div>
+                      ) : column.id === 'pair' ? (
+                        <div className="flex items-center gap-1.5 px-2 py-1 min-w-0">
+                          <span className="truncate text-gray-300">{String(deal.pair ?? '')}</span>
+                          {deal.isWacTrade && (
+                            <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-500/90 bg-yellow-500/10 border border-yellow-500/30 rounded">
+                              Binance
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <div className={getCellClassName(String(deal[column.id] ?? ''), column.type)}>
@@ -981,7 +1053,7 @@ export function DataBase() {
                       <div className="relative">
                         <input
                           type="date"
-                          value={normalizeDateDisplay(deal[column.id] || '')}
+                          value={toIsoDateString(deal[column.id] || '')}
                           lang="en-CA"
                           onFocus={() => setActiveDateEditor(deal.id)}
                           onChange={(e) => updateDeal(deal.id, column.id, e.target.value)}
@@ -997,7 +1069,7 @@ export function DataBase() {
                         />
                         {activeDateEditor !== deal.id && (
                           <span className="pointer-events-none absolute inset-0 flex items-center px-2 text-gray-300">
-                            {normalizeDateDisplay(deal[column.id] || '')}
+                            {formatDateDisplay(deal[column.id] || '')}
                           </span>
                         )}
                       </div>

@@ -1,4 +1,15 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
+import {
+  clientToWorldPoint,
+  eraseStrokesAlongPath,
+  parseDrawingData,
+  serializeDrawingData,
+  WORLD_ERASER_WIDTH,
+  WORLD_STROKE_WIDTH,
+  type DrawToolMode,
+  type DrawingDocument,
+  type DrawingStroke,
+} from '../lib/drawingStorage';
 
 export const BRUSH_COLORS = [
   { value: '#ffffff', label: 'White' },
@@ -13,179 +24,190 @@ export const BRUSH_COLORS = [
 
 interface DrawingCanvasProps {
   isActive: boolean;
+  toolMode: DrawToolMode;
   color?: string;
   canvasId?: string;
-  drawingDataUrl?: string;
-  onDrawingChange?: (dataUrl: string) => void;
-  viewportRef?: React.RefObject<HTMLDivElement | null>;
-  worldRef?: React.RefObject<HTMLDivElement | null>;
+  worldSize: number;
+  drawingData?: string;
+  onDrawingChange?: (data: string) => void;
+  worldRef: React.RefObject<HTMLDivElement | null>;
+  zoomRef: MutableRefObject<number>;
+}
+
+function pointsToPolyline(points: DrawingStroke['points']): string {
+  return points.map((point) => `${point.x},${point.y}`).join(' ');
+}
+
+function StrokePath({ stroke }: { stroke: DrawingStroke }) {
+  if (stroke.points.length < 2) return null;
+
+  return (
+    <polyline
+      points={pointsToPolyline(stroke.points)}
+      fill="none"
+      stroke={stroke.color}
+      strokeWidth={stroke.width}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  );
+}
+
+function EraserPreviewPath({ points }: { points: DrawingStroke['points'] }) {
+  if (points.length < 2) return null;
+
+  return (
+    <polyline
+      points={pointsToPolyline(points)}
+      fill="none"
+      stroke="rgba(250, 250, 250, 0.45)"
+      strokeWidth={WORLD_ERASER_WIDTH}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  );
 }
 
 export function DrawingCanvas({
   isActive,
+  toolMode,
   color = '#ffffff',
   canvasId,
-  drawingDataUrl,
+  worldSize,
+  drawingData,
   onDrawingChange,
-  viewportRef,
   worldRef,
+  zoomRef,
 }: DrawingCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const contextRef = useRef<CanvasRenderingContext2D | null>(null);
+  const [document, setDocument] = useState<DrawingDocument>(() => parseDrawingData(drawingData));
+  const [liveStroke, setLiveStroke] = useState<DrawingStroke | null>(null);
+  const liveStrokeRef = useRef<DrawingStroke | null>(null);
   const isDrawingRef = useRef(false);
   const restoredForCanvasRef = useRef<string | null>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
+  const svgRef = useRef<SVGSVGElement>(null);
 
-  const persistDrawing = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !onDrawingChange) return;
-    onDrawingChange(canvas.toDataURL());
-  }, [onDrawingChange]);
-
-  const restoreDrawing = useCallback(
-    (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, dataUrl: string) => {
-      const img = new Image();
-      img.onload = () => {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      };
-      img.src = dataUrl;
+  const persistDocument = useCallback(
+    (next: DrawingDocument) => {
+      onDrawingChange?.(serializeDrawingData(next));
     },
-    []
+    [onDrawingChange]
   );
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    contextRef.current = ctx;
-
-    const updateCanvasSize = () => {
-      const parent = viewportRef?.current ?? canvas.parentElement;
-      if (!parent) return;
-
-      const w = parent.clientWidth;
-      const h = parent.clientHeight;
-      if (w <= 0 || h <= 0) return;
-
-      const snapshot =
-        canvas.width > 0 && canvas.height > 0 ? canvas.toDataURL() : null;
-
-      canvas.width = w;
-      canvas.height = h;
-
-      ctx.lineWidth = 4;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = color;
-
-      if (snapshot) {
-        restoreDrawing(ctx, canvas, snapshot);
-      }
-    };
-
-    updateCanvasSize();
-
-    const parent = viewportRef?.current ?? canvas.parentElement;
-    const ro = parent ? new ResizeObserver(updateCanvasSize) : null;
-    ro?.observe(parent);
-    window.addEventListener('resize', updateCanvasSize);
-
-    return () => {
-      ro?.disconnect();
-      window.removeEventListener('resize', updateCanvasSize);
-    };
-  }, [viewportRef, restoreDrawing, color]);
 
   useEffect(() => {
     if (!canvasId) return;
     if (restoredForCanvasRef.current === canvasId) return;
 
-    const canvas = canvasRef.current;
-    const ctx = contextRef.current;
-    if (!canvas || !ctx || canvas.width === 0) return;
-
     restoredForCanvasRef.current = canvasId;
-    if (drawingDataUrl) {
-      restoreDrawing(ctx, canvas, drawingDataUrl);
-    } else {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
-  }, [canvasId, drawingDataUrl, restoreDrawing]);
+    const parsed = parseDrawingData(drawingData);
+    setDocument(parsed);
+    liveStrokeRef.current = null;
+    setLiveStroke(null);
+    isDrawingRef.current = false;
+  }, [canvasId, drawingData]);
 
-  useEffect(() => {
-    const ctx = contextRef.current;
-    if (ctx) ctx.strokeStyle = color;
-  }, [color]);
-
-  const getCanvasPoint = useCallback((clientX: number, clientY: number) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    return { x: clientX - rect.left, y: clientY - rect.top };
-  }, []);
+  const getWorldPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const world = worldRef.current;
+      if (!world) return null;
+      return clientToWorldPoint(clientX, clientY, world, zoomRef.current);
+    },
+    [worldRef, zoomRef]
+  );
 
   const startStroke = useCallback(
     (clientX: number, clientY: number) => {
       if (!isActive) return;
-      const ctx = contextRef.current;
-      const point = getCanvasPoint(clientX, clientY);
-      if (!ctx || !point) return;
+      const point = getWorldPoint(clientX, clientY);
+      if (!point) return;
+
+      const stroke: DrawingStroke = {
+        id: `stroke-${Date.now()}`,
+        color: toolMode === 'eraser' ? 'eraser' : color,
+        width: toolMode === 'eraser' ? WORLD_ERASER_WIDTH : WORLD_STROKE_WIDTH,
+        points: [point],
+      };
 
       isDrawingRef.current = true;
-      setIsDrawing(true);
-      ctx.strokeStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(point.x, point.y);
+      liveStrokeRef.current = stroke;
+      setLiveStroke(stroke);
     },
-    [color, getCanvasPoint, isActive]
+    [color, getWorldPoint, isActive, toolMode]
   );
 
   const continueStroke = useCallback(
     (clientX: number, clientY: number) => {
       if (!isDrawingRef.current) return;
-      const ctx = contextRef.current;
-      const point = getCanvasPoint(clientX, clientY);
-      if (!ctx || !point) return;
+      const point = getWorldPoint(clientX, clientY);
+      if (!point) return;
 
-      ctx.lineTo(point.x, point.y);
-      ctx.stroke();
+      const current = liveStrokeRef.current;
+      if (!current) return;
+
+      const last = current.points[current.points.length - 1];
+      if (last && last.x === point.x && last.y === point.y) return;
+
+      const nextStroke = { ...current, points: [...current.points, point] };
+      liveStrokeRef.current = nextStroke;
+      setLiveStroke(nextStroke);
     },
-    [getCanvasPoint]
+    [getWorldPoint]
   );
 
   const endStroke = useCallback(() => {
-    const ctx = contextRef.current;
-    if (!ctx || !isDrawingRef.current) return;
+    if (!isDrawingRef.current) return;
     isDrawingRef.current = false;
-    setIsDrawing(false);
-    ctx.closePath();
-    persistDrawing();
-  }, [persistDrawing]);
+
+    const finished = liveStrokeRef.current;
+    liveStrokeRef.current = null;
+    setLiveStroke(null);
+
+    if (!finished || finished.points.length === 0) return;
+
+    setDocument((prev) => {
+      let next: DrawingDocument;
+
+      if (toolMode === 'eraser') {
+        next = {
+          version: 1,
+          strokes: eraseStrokesAlongPath(prev.strokes, finished.points, WORLD_ERASER_WIDTH),
+        };
+      } else if (finished.points.length < 2) {
+        return prev;
+      } else {
+        next = {
+          version: 1,
+          strokes: [...prev.strokes, { ...finished, color, width: WORLD_STROKE_WIDTH }],
+        };
+      }
+
+      persistDocument(next);
+      return next;
+    });
+  }, [color, persistDocument, toolMode]);
 
   useEffect(() => {
-    const world = worldRef?.current;
-    if (!world || !isActive) return;
+    if (!isActive) return;
 
-    const handleWorldMouseDown = (e: MouseEvent) => {
-      if (e.button !== 0) return;
-      if (e.target !== world) return;
-      e.preventDefault();
-      startStroke(e.clientX, e.clientY);
+    const svg = svgRef.current;
+    if (!svg) return;
+
+    const handleMouseDown = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      startStroke(event.clientX, event.clientY);
     };
 
-    world.addEventListener('mousedown', handleWorldMouseDown);
-    return () => world.removeEventListener('mousedown', handleWorldMouseDown);
-  }, [worldRef, startStroke, isActive]);
+    svg.addEventListener('mousedown', handleMouseDown);
+    return () => svg.removeEventListener('mousedown', handleMouseDown);
+  }, [isActive, startStroke]);
 
   useEffect(() => {
-    if (!isDrawing) return;
+    if (!liveStroke) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
-      e.preventDefault();
-      continueStroke(e.clientX, e.clientY);
+    const handleMouseMove = (event: MouseEvent) => {
+      event.preventDefault();
+      continueStroke(event.clientX, event.clientY);
     };
     const handleMouseUp = () => endStroke();
 
@@ -195,14 +217,32 @@ export function DrawingCanvas({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDrawing, continueStroke, endStroke]);
+  }, [liveStroke, continueStroke, endStroke]);
+
+  const cursorClass =
+    toolMode === 'eraser'
+      ? 'cursor-cell'
+      : 'cursor-crosshair';
+
+  const showEraserPreview = toolMode === 'eraser' && liveStroke;
 
   return (
-    <canvas
-      ref={canvasRef}
-      data-brush-canvas
-      className="pointer-events-none absolute inset-0 z-[35]"
-      style={{ cursor: isActive && isDrawing ? 'crosshair' : 'default' }}
-    />
+    <svg
+      ref={svgRef}
+      data-brush-layer
+      aria-hidden
+      className={`absolute left-0 top-0 z-[45] ${
+        isActive ? `pointer-events-auto ${cursorClass}` : 'pointer-events-none'
+      }`}
+      width={worldSize}
+      height={worldSize}
+      viewBox={`0 0 ${worldSize} ${worldSize}`}
+    >
+      {document.strokes.map((stroke) => (
+        <StrokePath key={stroke.id} stroke={stroke} />
+      ))}
+      {toolMode === 'brush' && liveStroke && <StrokePath stroke={{ ...liveStroke, color }} />}
+      {showEraserPreview && <EraserPreviewPath points={liveStroke.points} />}
+    </svg>
   );
 }

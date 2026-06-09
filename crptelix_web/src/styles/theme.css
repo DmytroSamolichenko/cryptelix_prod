@@ -207,8 +207,6 @@
 .scrollbar-hidden::-webkit-scrollbar {
   display: none;
 }
-<<<<<<< Updated upstream
-=======
 
 /* Visible scrollbars for canvas widgets when content overflows */
 .widget-scrollbar {
@@ -297,4 +295,3 @@
   letter-spacing: 0.12em;
   -webkit-font-smoothing: antialiased;
 }
->>>>>>> Stashed changes

@@ -1,17 +1,12 @@
-import { Hexagon, Sparkles, TrendingUp, TrendingDown } from 'lucide-react';
 import { Widget } from './DashboardWidget';
 import { WidgetType } from './DashboardWidget';
 import { FlexibleWidget } from './FlexibleWidget';
-import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ZoomIn, ZoomOut } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { KeyMetricsCards } from './TradingMetrics';
-import { FtrReportTable } from './FtrReportTable';
 import { DrawingCanvas } from './DrawingCanvas';
-import { CanvasTextElement, type TextElementState } from './CanvasTextElement';
-import { PortfolioWidget } from './PortfolioWidget';
-import { WvlWidget } from './WvlWidget';
-import { ProfitTrendWidget } from './ProfitTrendWidget';
+import { CanvasTextElement, type TextElementState, DEFAULT_FONT_SIZE, normalizeCommittedHtml } from './CanvasTextElement';
+import { CanvasWidgetBody } from './CanvasWidgetBody';
 import { DEFAULT_CANVAS_ZOOM, scaleSize } from '../lib/uiScale';
 import { CanvasHelpHint } from './CanvasHelpHint';
 
@@ -24,6 +19,8 @@ interface DashboardCanvasProps {
   onUpdateWidgetData: (id: string, data: Record<string, unknown>) => void;
   isWidgetsOpen: boolean;
   isBrushActive: boolean;
+  drawToolMode: 'brush' | 'eraser';
+  onDrawToolModeChange: (mode: 'brush' | 'eraser') => void;
   brushColor: string;
   drawingDataUrl?: string;
   onDrawingChange?: (dataUrl: string) => void;
@@ -33,12 +30,60 @@ interface DashboardCanvasProps {
 /** Workspace plane — scroll/pan in any direction (middle mouse, right mouse, or Space + drag) */
 const WORLD_SIZE = 10000;
 const WORLD_ORIGIN = WORLD_SIZE / 2;
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 3;
+const ZOOM_STEP = 0.25;
+const ZOOM_WHEEL_STEP = 0.1;
+const ZOOM_ANIM_MS = 280;
+
+function clampZoom(value: number): number {
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - (1 - t) ** 3;
+}
+
+function getWorldPointAtAnchor(
+  scrollLeft: number,
+  scrollTop: number,
+  zoomLevel: number,
+  anchorX: number,
+  anchorY: number
+) {
+  return {
+    worldX: (scrollLeft + anchorX) / zoomLevel,
+    worldY: (scrollTop + anchorY) / zoomLevel,
+  };
+}
+
+function scrollForWorldPoint(
+  worldX: number,
+  worldY: number,
+  zoomLevel: number,
+  anchorX: number,
+  anchorY: number
+) {
+  return {
+    scrollLeft: worldX * zoomLevel - anchorX,
+    scrollTop: worldY * zoomLevel - anchorY,
+  };
+}
 
 function widgetToTextElement(widget: Widget): TextElementState {
-  const data = (widget.data ?? {}) as { text?: string };
+  const data = (widget.data ?? {}) as { text?: string; html?: string; fontSize?: number };
+  const rawHtml = data.html ?? '';
+  const htmlFromText = data.text ? data.text.replace(/\n/g, '<br>') : '';
+  const sourceHtml =
+    rawHtml.replace(/<[^>]+>/g, '').replace(/&nbsp;/gi, ' ').trim().length > 0
+      ? rawHtml
+      : htmlFromText;
+  const html = normalizeCommittedHtml(sourceHtml);
   return {
     id: widget.id,
     text: data.text ?? '',
+    html,
+    fontSize: typeof data.fontSize === 'number' ? data.fontSize : DEFAULT_FONT_SIZE,
     x: widget.position?.x ?? 0,
     y: widget.position?.y ?? 0,
     width: widget.size?.width ?? 280,
@@ -55,12 +100,17 @@ export function DashboardCanvas({
   onUpdateWidgetData,
   isWidgetsOpen,
   isBrushActive,
+  drawToolMode,
   brushColor,
   drawingDataUrl,
   onDrawingChange,
   canvasId,
 }: DashboardCanvasProps) {
   const [zoom, setZoom] = useState(DEFAULT_CANVAS_ZOOM);
+  const zoomRef = useRef(DEFAULT_CANVAS_ZOOM);
+  const zoomAnimFrameRef = useRef<number | null>(null);
+  const zoomLabelRef = useRef<HTMLSpanElement | null>(null);
+  const isZoomAnimatingRef = useRef(false);
   const [isPanning, setIsPanning] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
@@ -92,23 +142,170 @@ export function DashboardCanvas({
     container.scrollTop = Math.max(0, targetTop);
   };
 
+  const updateZoomLabel = (level: number) => {
+    if (zoomLabelRef.current) {
+      zoomLabelRef.current.textContent = `${Math.round(level * 100)}%`;
+    }
+  };
+
+  const syncWorldTransform = (level: number) => {
+    const el = worldSurfaceRef.current;
+    if (!el) return;
+    el.style.transform = `scale(${level})`;
+  };
+
+  const setZoomAnimating = (active: boolean) => {
+    isZoomAnimatingRef.current = active;
+    const el = worldSurfaceRef.current;
+    if (!el) return;
+    if (active) {
+      el.style.willChange = 'transform';
+    } else {
+      el.style.willChange = '';
+    }
+  };
+
+  const commitZoom = (level: number) => {
+    zoomRef.current = level;
+    syncWorldTransform(level);
+    updateZoomLabel(level);
+    setZoom(level);
+  };
+
+  useEffect(() => {
+    if (isZoomAnimatingRef.current) return;
+    zoomRef.current = zoom;
+    syncWorldTransform(zoom);
+    updateZoomLabel(zoom);
+  }, [zoom]);
+
+  useEffect(() => {
+    return () => {
+      if (zoomAnimFrameRef.current != null) {
+        cancelAnimationFrame(zoomAnimFrameRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (hasCenteredScrollRef.current) return;
     const id = requestAnimationFrame(() => {
       const container = scrollContainerRef.current;
       if (!container || container.clientWidth === 0) return;
-      centerViewportOnOrigin(zoom);
+      syncWorldTransform(zoomRef.current);
+      updateZoomLabel(zoomRef.current);
+      centerViewportOnOrigin(zoomRef.current);
       hasCenteredScrollRef.current = true;
     });
     return () => cancelAnimationFrame(id);
-  }, [zoom]);
+  }, []);
 
-  const handleZoomIn = () => setZoom((prev) => Math.min(prev + 0.25, 3));
-  const handleZoomOut = () => setZoom((prev) => Math.max(prev - 0.25, 0.25));
-  const handleResetZoom = () => {
-    setZoom(DEFAULT_CANVAS_ZOOM);
-    requestAnimationFrame(() => centerViewportOnOrigin(DEFAULT_CANVAS_ZOOM));
+  const cancelZoomAnimation = () => {
+    if (zoomAnimFrameRef.current != null) {
+      cancelAnimationFrame(zoomAnimFrameRef.current);
+      zoomAnimFrameRef.current = null;
+    }
+    if (isZoomAnimatingRef.current) {
+      setZoomAnimating(false);
+      commitZoom(zoomRef.current);
+    }
   };
+
+  const applyZoomAtAnchor = (
+    nextZoom: number,
+    anchorX: number,
+    anchorY: number,
+    options?: { animate?: boolean }
+  ) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const targetZoom = clampZoom(nextZoom);
+    const startZoom = zoomRef.current;
+    if (Math.abs(targetZoom - startZoom) < 0.001) return;
+
+    cancelZoomAnimation();
+
+    const { worldX, worldY } = getWorldPointAtAnchor(
+      container.scrollLeft,
+      container.scrollTop,
+      startZoom,
+      anchorX,
+      anchorY
+    );
+
+    if (!options?.animate) {
+      const { scrollLeft, scrollTop } = scrollForWorldPoint(
+        worldX,
+        worldY,
+        targetZoom,
+        anchorX,
+        anchorY
+      );
+      container.scrollLeft = scrollLeft;
+      container.scrollTop = scrollTop;
+      commitZoom(targetZoom);
+      return;
+    }
+
+    setZoomAnimating(true);
+    const startTime = performance.now();
+
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - startTime) / ZOOM_ANIM_MS);
+      const currentZoom = startZoom + (targetZoom - startZoom) * easeOutCubic(progress);
+      const { scrollLeft, scrollTop } = scrollForWorldPoint(
+        worldX,
+        worldY,
+        currentZoom,
+        anchorX,
+        anchorY
+      );
+
+      zoomRef.current = currentZoom;
+      syncWorldTransform(currentZoom);
+      updateZoomLabel(currentZoom);
+      container.scrollLeft = scrollLeft;
+      container.scrollTop = scrollTop;
+
+      if (progress < 1) {
+        zoomAnimFrameRef.current = requestAnimationFrame(tick);
+      } else {
+        zoomAnimFrameRef.current = null;
+        setZoomAnimating(false);
+        commitZoom(targetZoom);
+      }
+    };
+
+    zoomAnimFrameRef.current = requestAnimationFrame(tick);
+  };
+
+  const getViewportCenter = (container: HTMLDivElement) => ({
+    anchorX: container.clientWidth / 2,
+    anchorY: container.clientHeight / 2,
+  });
+
+  const zoomFromViewportCenter = useCallback((delta: number, animate = true) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const { anchorX, anchorY } = getViewportCenter(container);
+    applyZoomAtAnchor(zoomRef.current + delta, anchorX, anchorY, { animate });
+  }, []);
+
+  const handleZoomIn = useCallback(() => {
+    zoomFromViewportCenter(ZOOM_STEP, true);
+  }, [zoomFromViewportCenter]);
+
+  const handleZoomOut = useCallback(() => {
+    zoomFromViewportCenter(-ZOOM_STEP, true);
+  }, [zoomFromViewportCenter]);
+
+  const handleResetZoom = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const { anchorX, anchorY } = getViewportCenter(container);
+    applyZoomAtAnchor(DEFAULT_CANVAS_ZOOM, anchorX, anchorY, { animate: true });
+  }, []);
 
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
@@ -181,7 +378,7 @@ export function DashboardCanvas({
     setIsPanning(true);
   };
 
-  const clearTextSelection = () => {
+  const clearWidgetSelection = () => {
     setSelectedWidgetId(null);
     setEditingWidgetId(null);
   };
@@ -195,9 +392,71 @@ export function DashboardCanvas({
     }
   }, [widgets]);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      const zoomIn =
+        (e.key === '+' || e.key === '=') && (e.ctrlKey || e.metaKey);
+      const zoomOut = (e.key === '-' || e.key === '_') && (e.ctrlKey || e.metaKey);
+      const resetZoom = e.key === '0' && (e.ctrlKey || e.metaKey);
+
+      if (zoomIn) {
+        e.preventDefault();
+        handleZoomIn();
+      } else if (zoomOut) {
+        e.preventDefault();
+        handleZoomOut();
+      } else if (resetZoom) {
+        e.preventDefault();
+        handleResetZoom();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleZoomIn, handleZoomOut, handleResetZoom]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete') return;
+      if (!selectedWidgetId) return;
+
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      const widget = widgets.find((w) => w.id === selectedWidgetId);
+      if (!widget) return;
+
+      if (widget.type === 'text-field' && editingWidgetId === selectedWidgetId) return;
+
+      e.preventDefault();
+      onRemoveWidget(selectedWidgetId);
+      clearWidgetSelection();
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedWidgetId, editingWidgetId, widgets, onRemoveWidget]);
+
   const handleWorldMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button === 0 && !spaceHeld && event.target === event.currentTarget) {
-      clearTextSelection();
+      clearWidgetSelection();
     }
   };
 
@@ -206,39 +465,35 @@ export function DashboardCanvas({
     const isRight = event.button === 2;
     const isSpaceLeft = event.button === 0 && spaceHeld;
     if (!isMiddle && !isRight && !isSpaceLeft) return;
-    clearTextSelection();
+    clearWidgetSelection();
     startPan(event);
   };
 
   const handleTextElementUpdate = (updated: TextElementState) => {
     onUpdateWidgetPosition(updated.id, { x: updated.x, y: updated.y });
     onUpdateWidgetSize(updated.id, { width: updated.width, height: updated.height });
-    onUpdateWidgetData(updated.id, { text: updated.text });
+    onUpdateWidgetData(updated.id, {
+      text: updated.text,
+      html: updated.html,
+      fontSize: updated.fontSize,
+    });
   };
 
   const handleCanvasWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    // Use wheel for dashboard zoom.
     event.preventDefault();
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    const prevZoom = zoom;
-    const delta = event.deltaY < 0 ? 0.1 : -0.1;
-    const nextZoom = Math.min(3, Math.max(0.25, prevZoom + delta));
+    const rect = container.getBoundingClientRect();
+    const anchorX = event.clientX - rect.left;
+    const anchorY = event.clientY - rect.top;
+
+    const prevZoom = zoomRef.current;
+    const delta = event.deltaY < 0 ? ZOOM_WHEEL_STEP : -ZOOM_WHEEL_STEP;
+    const nextZoom = clampZoom(prevZoom + delta);
     if (nextZoom === prevZoom) return;
 
-    // Keep zoom focus near the pointer position.
-    const rect = container.getBoundingClientRect();
-    const pointerX = event.clientX - rect.left + container.scrollLeft;
-    const pointerY = event.clientY - rect.top + container.scrollTop;
-    const scaleRatio = nextZoom / prevZoom;
-
-    setZoom(nextZoom);
-
-    requestAnimationFrame(() => {
-      container.scrollLeft = pointerX * scaleRatio - (event.clientX - rect.left);
-      container.scrollTop = pointerY * scaleRatio - (event.clientY - rect.top);
-    });
+    applyZoomAtAnchor(nextZoom, anchorX, anchorY);
   };
 
   const handleAddWidgetFromToolbar = (type: WidgetType) => {
@@ -271,123 +526,45 @@ export function DashboardCanvas({
     onAddWidget(newWidget);
   };
 
-  const handleExtractMetric = (label: string, value: string | number, isPositive?: boolean, isNegative?: boolean) => {
-    const ftrMetricKey = `ftr:${label}`;
-    if (widgets.some((w) => w.data?.ftrMetricKey === ftrMetricKey)) {
-      return;
-    }
-    const newWidget: Widget = {
-      id: `ftr-spawn-${ftrMetricKey.replace(/[^\w-]+/g, '-').slice(0, 96)}`,
-      type: 'stats-card',
-      title: label,
-      position: { x: Math.floor(Math.random() * 400) + 50, y: Math.floor(Math.random() * 200) + 50 },
-      size: { width: 300, height: 180 },
-      data: { value, isPositive, isNegative, ftrMetricKey },
-    };
-    onAddWidget(newWidget);
-  };
-
-  const renderWidgetContent = (widget: Widget) => {
-    switch (widget.type) {
-      case 'line-chart':
-        return <ProfitTrendWidget />;
-
-      case 'bar-chart':
-        return <WvlWidget />;
-
-      case 'stats-card':
-        // If widget has custom data (from extracted metric), display it
-        if (widget.data) {
-          const color = widget.data.isPositive
-            ? '#22c55e'
-            : widget.data.isNegative
-              ? '#ef4444'
-              : '#fafafa';
-          return (
-            <div className="flex h-full min-h-0 flex-col items-center justify-center overflow-hidden px-3 py-2">
-              <div
-                className="flex max-w-full items-center justify-center gap-2 text-center text-xl font-bold leading-tight"
-                style={{ color }}
-              >
-                {widget.data.isPositive && <TrendingUp className="h-7 w-7 shrink-0" aria-hidden />}
-                {widget.data.isNegative && <TrendingDown className="h-7 w-7 shrink-0" aria-hidden />}
-                <span className="min-w-0 break-words">{widget.data.value}</span>
-              </div>
-            </div>
-          );
-        }
-        return <KeyMetricsCards />;
-
-      case 'table':
-        return <FtrReportTable onExtractMetric={handleExtractMetric} />;
-
-      case 'portfolio-widget':
-        return (
-          <PortfolioWidget />
-        );
-
-      default:
-        return (
-          <div className="flex items-center justify-center h-full text-gray-500 text-sm">
-            Widget content
-          </div>
-        );
-    }
-  };
+  const handleExtractMetric = useCallback(
+    (label: string, value: string | number, isPositive?: boolean, isNegative?: boolean) => {
+      const ftrMetricKey = `ftr:${label}`;
+      if (widgets.some((w) => w.data?.ftrMetricKey === ftrMetricKey)) {
+        return;
+      }
+      const newWidget: Widget = {
+        id: `ftr-spawn-${ftrMetricKey.replace(/[^\w-]+/g, '-').slice(0, 96)}`,
+        type: 'stats-card',
+        title: label,
+        position: { x: Math.floor(Math.random() * 400) + 50, y: Math.floor(Math.random() * 200) + 50 },
+        size: { width: 300, height: 180 },
+        data: { value, isPositive, isNegative, ftrMetricKey },
+      };
+      onAddWidget(newWidget);
+    },
+    [widgets, onAddWidget]
+  );
 
   const panCursor = isPanning ? 'cursor-grabbing' : spaceHeld ? 'cursor-grab' : 'cursor-default';
 
   return (
     <div className="h-full flex flex-col bg-zinc-950">
       <div className="flex-1 overflow-hidden relative bg-zinc-950">
-        {/* Zoom Controls */}
-        <div className="absolute bottom-6 right-6 flex flex-col gap-2 z-50">
-          <motion.button
-            onClick={handleZoomIn}
-            className="p-2 bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 rounded-lg hover:bg-zinc-800 hover:border-yellow-500/50 transition-all"
-            title="Zoom In"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-          >
-            <ZoomIn className="w-4 h-4 text-gray-400" />
-          </motion.button>
-          <motion.button
-            onClick={handleResetZoom}
-            className="px-2 py-1 bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 rounded-lg hover:bg-zinc-800 hover:border-yellow-500/50 transition-all text-xs text-gray-400"
-            title="Reset Zoom"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            {Math.round(zoom * 100)}%
-          </motion.button>
-          <motion.button
-            onClick={handleZoomOut}
-            className="p-2 bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 rounded-lg hover:bg-zinc-800 hover:border-yellow-500/50 transition-all"
-            title="Zoom Out"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-          >
-            <ZoomOut className="w-4 h-4 text-gray-400" />
-          </motion.button>
-        </div>
-
         <div
           ref={scrollContainerRef}
-          className={`absolute inset-0 overflow-hidden ${panCursor}`}
+          className={`absolute inset-0 overflow-auto scrollbar-hidden ${panCursor}`}
           onMouseDown={handleCanvasMouseDown}
           onWheel={handleCanvasWheel}
           onContextMenu={(e) => e.preventDefault()}
         >
           <div
             ref={worldSurfaceRef}
-            className="relative origin-top-left [contain:layout]"
+            className="relative origin-top-left"
             onMouseDown={handleWorldMouseDown}
             style={{
               width: WORLD_SIZE,
               height: WORLD_SIZE,
-              transform: `scale(${zoom})`,
               transformOrigin: '0 0',
-              backfaceVisibility: 'hidden',
               backgroundColor: '#09090b',
               backgroundImage: `
                 radial-gradient(circle, rgba(250, 204, 21, 0.08) 1px, transparent 1px),
@@ -408,10 +585,10 @@ export function DashboardCanvas({
                     isSelected={isSelected}
                     isEditing={isEditing}
                     canvasOrigin={{ x: WORLD_ORIGIN, y: WORLD_ORIGIN }}
-                    zoom={zoom}
+                    zoomRef={zoomRef}
                     onSelect={() => {
                       setSelectedWidgetId(widget.id);
-                      setEditingWidgetId(null);
+                      setEditingWidgetId(widget.id);
                     }}
                     onStartEdit={() => {
                       setSelectedWidgetId(widget.id);
@@ -420,7 +597,7 @@ export function DashboardCanvas({
                     onEndEdit={() => setEditingWidgetId(null)}
                     onUpdate={handleTextElementUpdate}
                     onRemove={(id) => {
-                      if (selectedWidgetId === id) clearTextSelection();
+                      if (selectedWidgetId === id) clearWidgetSelection();
                       onRemoveWidget(id);
                     }}
                   />
@@ -435,26 +612,73 @@ export function DashboardCanvas({
                   onUpdatePosition={onUpdateWidgetPosition}
                   onUpdateSize={onUpdateWidgetSize}
                   canvasOrigin={{ x: WORLD_ORIGIN, y: WORLD_ORIGIN }}
-                  zoom={zoom}
+                  zoomRef={zoomRef}
+                  isSelected={selectedWidgetId === widget.id}
+                  onSelect={() => {
+                    setSelectedWidgetId(widget.id);
+                    setEditingWidgetId(null);
+                  }}
                 >
-                  {renderWidgetContent(widget)}
+                  <CanvasWidgetBody widget={widget} onExtractMetric={handleExtractMetric} />
                 </FlexibleWidget>
               );
             })}
+
+            <DrawingCanvas
+              isActive={isBrushActive}
+              toolMode={drawToolMode}
+              color={brushColor}
+              canvasId={canvasId}
+              worldSize={WORLD_SIZE}
+              drawingData={drawingDataUrl}
+              onDrawingChange={onDrawingChange}
+              worldRef={worldSurfaceRef}
+              zoomRef={zoomRef}
+            />
           </div>
         </div>
 
-        <DrawingCanvas
-          isActive={isBrushActive}
-          color={brushColor}
-          canvasId={canvasId}
-          drawingDataUrl={drawingDataUrl}
-          onDrawingChange={onDrawingChange}
-          viewportRef={scrollContainerRef}
-          worldRef={worldSurfaceRef}
-        />
-
         <CanvasHelpHint />
+
+        {/* Zoom controls — rendered last so clicks always reach the buttons */}
+        <div
+          className="pointer-events-auto absolute bottom-6 right-6 z-[60] flex flex-col gap-2"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <motion.button
+            type="button"
+            onClick={handleZoomIn}
+            className="p-2 bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 rounded-lg hover:bg-zinc-800 hover:border-yellow-500/50 transition-all"
+            title="Zoom In"
+            aria-label="Zoom in"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+          >
+            <ZoomIn className="w-4 h-4 text-gray-400" />
+          </motion.button>
+          <motion.button
+            type="button"
+            onClick={handleResetZoom}
+            className="px-2 py-1 bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 rounded-lg hover:bg-zinc-800 hover:border-yellow-500/50 transition-all text-xs text-gray-400"
+            title="Reset zoom to 100%"
+            aria-label="Reset zoom"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <span ref={zoomLabelRef}>{Math.round(zoom * 100)}%</span>
+          </motion.button>
+          <motion.button
+            type="button"
+            onClick={handleZoomOut}
+            className="p-2 bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 rounded-lg hover:bg-zinc-800 hover:border-yellow-500/50 transition-all"
+            title="Zoom Out"
+            aria-label="Zoom out"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+          >
+            <ZoomOut className="w-4 h-4 text-gray-400" />
+          </motion.button>
+        </div>
       </div>
     </div>
   );

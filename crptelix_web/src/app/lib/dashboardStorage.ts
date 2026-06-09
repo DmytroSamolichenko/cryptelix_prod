@@ -119,7 +119,7 @@ export function saveConstructorState(
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     return;
   } catch {
-    // Drawings as data URLs can exceed quota — save layout without them.
+    // Legacy bitmap drawings are ignored after switching to vector format.
     try {
       localStorage.setItem(
         STORAGE_KEY,

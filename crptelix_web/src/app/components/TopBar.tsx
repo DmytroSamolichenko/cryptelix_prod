@@ -8,6 +8,9 @@ import { UserProfileModal } from './UserProfileModal';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface TopBarProps {
+  userEmail: string;
+  userSignedInAt: string;
+  onLogout: () => void;
   currentView: 'constructor' | 'database';
   onViewChange: (view: 'constructor' | 'database') => void;
   onWidgetsToggle: () => void;
@@ -17,6 +20,9 @@ interface TopBarProps {
 }
 
 export function TopBar({ 
+  userEmail,
+  userSignedInAt,
+  onLogout,
   currentView, 
   onViewChange, 
   onWidgetsToggle, 
@@ -225,6 +231,9 @@ export function TopBar({
       <UserProfileModal
         isOpen={isUserProfileOpen}
         onClose={() => setIsUserProfileOpen(false)}
+        email={userEmail}
+        signedInAt={userSignedInAt}
+        onLogout={onLogout}
         totalConnections={totalConnections}
         connections={connections}
       />

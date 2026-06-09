@@ -27,16 +27,21 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from starlette.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 from analytics_service import get_user_financial_summary
 from ai_service import AIAnalysisError, analyze_trade_sync
 import chat_service as chat_svc
 from database import DEFAULT_USER_ID, SessionLocal, get_db
-from exchange_service import ExchangeService
+from binance_connect_service import run_binance_connect_pipeline
+from binance_ws_listener import get_ws_status, stop_binance_ws
+from db_migrations import ensure_balance_spot_constraints
+from models import BalanceSpotTransaction as BalanceSpotTransactionModel
 from models import ChatMessage as ChatMessageModel  # noqa: F401 — register ORM mapper
 from models import APIKey as APIKeyModel
+from models import BinanceWs as BinanceWsModel
 from models import ChatSession as ChatSessionModel
+from models import PairInventory as PairInventoryModel  # noqa: F401
 from models import Trade as TradeModel
 from schemas import ChatSendRequest
 from schemas import (
@@ -50,7 +55,15 @@ from security import encrypt_data
 
 
 app = FastAPI(title="Cryptelix API", version="1.0.0")
-_SYNC_JOBS: Dict[str, Dict[str, Any]] = {}
+_CONNECT_JOBS: Dict[str, Dict[str, Any]] = {}
+
+
+@app.on_event("startup")
+def _apply_schema_patches() -> None:
+    try:
+        ensure_balance_spot_constraints()
+    except Exception as exc:
+        print(f"[WARN] Schema patch skipped: {exc}")
 
 
 app.add_middleware(
@@ -209,6 +222,19 @@ def _normalize_ai_report_for_api(value: Any) -> str | None:
     return s
 
 
+def _is_legacy_raw_fill_row(trade: TradeModel) -> bool:
+    """Old per-fill sync rows (Buy/Sell without exit/pnl) — superseded by WAC journal trades."""
+    if trade.pnl is not None or trade.exit_price is not None:
+        return False
+    side = (trade.side or "").strip().lower()
+    if side not in {"buy", "sell"}:
+        return False
+    ext = (trade.exchange_trade_id or "").strip()
+    if not ext or ext.startswith("mock-") or ext.startswith("wac-"):
+        return False
+    return True
+
+
 def _trade_to_dict(trade: TradeModel) -> Dict[str, Any]:
     """JSON aligned with DB columns (snake_case). Frontend maps to React camelCase."""
     return {
@@ -293,10 +319,23 @@ async def upsert_exchange_credentials(
         db.rollback()
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    job_id = str(uuid4())
+    _CONNECT_JOBS[job_id] = {
+        "status": "queued",
+        "phase": "queued",
+        "exchange_name": exchange_name,
+        "account_type": "spot",
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "phases": {},
+        "error": None,
+    }
+    asyncio.create_task(_run_binance_connect_job(job_id=job_id, account_type="spot"))
+
     return {
         "status": "ok",
         "action": action,
         "exchange_name": exchange_name,
+        "connect_job_id": job_id,
     }
 
 
@@ -335,6 +374,11 @@ async def delete_exchange_credentials(
         )
 
     try:
+        await stop_binance_ws(DEFAULT_USER_ID, "spot")
+        db.query(BinanceWsModel).filter(
+            BinanceWsModel.user_id == DEFAULT_USER_ID,
+            BinanceWsModel.account_type == "spot",
+        ).delete()
         db.delete(row)
         db.commit()
     except Exception as exc:
@@ -347,120 +391,170 @@ async def delete_exchange_credentials(
     }
 
 
-@app.post("/api/v1/exchanges/binance/sync-trades")
-async def sync_binance_trades(
-    payload: ExchangeSyncTradesRequest,
+@app.post("/api/v1/exchanges/binance/connect")
+async def start_binance_connect(
     db: Session = Depends(get_db),
 ):
-    # Run sync as background work so browser abort/timeout won't cancel it.
-    exchange_name = "binance"
-    account_type = _normalize_account_type(payload.account_type)
-    # Validate credentials early before creating detached task.
     cred_exists = (
         db.query(APIKeyModel)
         .filter(
             APIKeyModel.user_id == DEFAULT_USER_ID,
-            APIKeyModel.exchange_name == exchange_name,
+            APIKeyModel.exchange_name == "binance",
         )
         .first()
     )
     if cred_exists is None:
         raise HTTPException(
             status_code=400,
-            detail=f"No API credentials found for exchange '{exchange_name}'.",
+            detail="No API credentials found for exchange 'binance'.",
         )
 
     job_id = str(uuid4())
-    _SYNC_JOBS[job_id] = {
+    _CONNECT_JOBS[job_id] = {
         "status": "queued",
-        "exchange_name": exchange_name,
-        "account_type": account_type,
+        "phase": "queued",
+        "exchange_name": "binance",
+        "account_type": "spot",
         "created_at": datetime.utcnow().isoformat() + "Z",
-        "synced_count": 0,
+        "phases": {},
         "error": None,
     }
-    asyncio.create_task(
-        _run_binance_sync_job(
-            job_id=job_id,
-            exchange_name=exchange_name,
-            account_type=account_type,
-            since=payload.since,
-            limit=payload.limit,
-        )
-    )
+    asyncio.create_task(_run_binance_connect_job(job_id=job_id, account_type="spot"))
     return {
         "status": "accepted",
         "job_id": job_id,
-        "exchange_name": exchange_name,
-        "account_type": account_type,
+        "exchange_name": "binance",
+        "account_type": "spot",
     }
 
 
-@app.get("/api/v1/exchanges/binance/sync-trades/{job_id}")
-async def get_binance_sync_status(job_id: str):
-    job = _SYNC_JOBS.get(job_id)
+@app.get("/api/v1/exchanges/binance/connect/{job_id}")
+async def get_binance_connect_status(job_id: str):
+    job = _CONNECT_JOBS.get(job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Sync job not found")
+        raise HTTPException(status_code=404, detail="Connect job not found")
     return job
 
 
-async def _run_binance_sync_job(
-    job_id: str,
-    exchange_name: str,
-    account_type: str,
-    since: int | None,
-    limit: int,
-) -> None:
-    db = SessionLocal()
-    service: ExchangeService | None = None
-    try:
-        _SYNC_JOBS[job_id]["status"] = "running"
-        before_count = (
-            db.query(TradeModel)
-            .filter(
-                TradeModel.user_id == DEFAULT_USER_ID,
-                TradeModel.exchange_name == exchange_name,
-            )
-            .count()
+@app.get("/api/v1/exchanges/binance/ws-status")
+async def get_binance_ws_status():
+    return get_ws_status(DEFAULT_USER_ID, "spot")
+
+
+@app.get("/api/v1/exchanges/binance/portfolio")
+async def get_binance_portfolio(db: Session = Depends(get_db)):
+    """Latest balance snapshots with USDT valuation."""
+    subq = (
+        db.query(
+            BalanceSpotTransactionModel.asset,
+            func.max(BalanceSpotTransactionModel.executed_at).label("max_at"),
         )
-        service = ExchangeService.from_db_credentials(exchange_name, db)
-        synced = await service.fetch_and_sync_all_trades(
-            since=since,
-            limit_per_request=limit,
-            account_type=account_type,
+        .filter(
+            BalanceSpotTransactionModel.user_id == DEFAULT_USER_ID,
+            BalanceSpotTransactionModel.type == "BALANCE_SNAPSHOT",
         )
-        after_count = (
-            db.query(TradeModel)
-            .filter(
-                TradeModel.user_id == DEFAULT_USER_ID,
-                TradeModel.exchange_name == exchange_name,
-            )
-            .count()
+        .group_by(BalanceSpotTransactionModel.asset)
+        .subquery()
+    )
+
+    rows = (
+        db.query(BalanceSpotTransactionModel)
+        .join(
+            subq,
+            (BalanceSpotTransactionModel.asset == subq.c.asset)
+            & (BalanceSpotTransactionModel.executed_at == subq.c.max_at),
         )
-        _SYNC_JOBS[job_id].update(
+        .filter(
+            BalanceSpotTransactionModel.user_id == DEFAULT_USER_ID,
+            BalanceSpotTransactionModel.type == "BALANCE_SNAPSHOT",
+        )
+        .all()
+    )
+
+    assets = []
+    total_usdt = 0.0
+    for row in rows:
+        amount = float(row.amount or 0)
+        rate = float(row.quote_to_usdt_rate or 0)
+        value_usdt = amount * rate if rate else 0.0
+        total_usdt += value_usdt
+        assets.append(
             {
-                "status": "done",
-                "synced_count": len(synced),
-                "new_since_request": max(after_count - before_count, 0),
-                "total_exchange_trades_for_user": after_count,
-                "finished_at": datetime.utcnow().isoformat() + "Z",
+                "asset": row.asset,
+                "total": str(row.amount),
+                "free": str(row.free) if row.free is not None else None,
+                "locked": str(row.locked) if row.locked is not None else None,
+                "value_usdt": round(value_usdt, 2),
+                "captured_at": row.executed_at.isoformat() if row.executed_at else None,
             }
         )
+
+    return {
+        "exchange_name": "binance",
+        "account_type": "spot",
+        "total_usdt": round(total_usdt, 2),
+        "assets": sorted(assets, key=lambda a: a["value_usdt"], reverse=True),
+        "ws": get_ws_status(DEFAULT_USER_ID, "spot"),
+    }
+
+
+async def _run_binance_connect_job(job_id: str, account_type: str) -> None:
+    def on_phase(phase: str, data: dict) -> None:
+        _CONNECT_JOBS[job_id]["phase"] = phase
+        _CONNECT_JOBS[job_id]["phases"][phase] = data
+        if data.get("status") == "running":
+            _CONNECT_JOBS[job_id]["status"] = "running"
+
+    try:
+        _CONNECT_JOBS[job_id]["status"] = "running"
+        result = await run_binance_connect_pipeline(
+            user_id=DEFAULT_USER_ID,
+            account_type=account_type,
+            on_phase=on_phase,
+        )
+        wac_phase = (result.get("phases") or {}).get("wac") or {}
+        job_update = {
+            "status": "done",
+            "phase": "done",
+            "orphans": result.get("orphans", []),
+            "trades_created": wac_phase.get("trades_created", 0),
+            "fills_processed": wac_phase.get("fills_processed", 0),
+            "finished_at": datetime.utcnow().isoformat() + "Z",
+        }
+        if result.get("ws_error"):
+            job_update["ws_error"] = result["ws_error"]
+            job_update["ws_status"] = "failed"
+        else:
+            job_update["ws_status"] = "connected"
+        _CONNECT_JOBS[job_id].update(job_update)
     except Exception as exc:
-        _SYNC_JOBS[job_id].update(
+        _CONNECT_JOBS[job_id].update(
             {
                 "status": "failed",
+                "phase": "failed",
                 "error": str(exc),
                 "finished_at": datetime.utcnow().isoformat() + "Z",
             }
         )
-    finally:
-        if service is not None:
-            try:
-                await service.close()
-            except Exception:
-                pass
-        db.close()
+
+
+@app.post("/api/v1/exchanges/binance/sync-trades")
+async def sync_binance_trades(
+    payload: ExchangeSyncTradesRequest,
+    db: Session = Depends(get_db),
+):
+    """Legacy alias — runs full connect pipeline (balance + backfill + WAC + WS)."""
+    _normalize_account_type(payload.account_type)
+    return await start_binance_connect(db)
+
+
+@app.get("/api/v1/exchanges/binance/sync-trades/{job_id}")
+async def get_binance_sync_status(job_id: str):
+    """Legacy alias for connect job status."""
+    job = _CONNECT_JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Sync job not found")
+    return job
 
 
 @app.get("/api/v1/trades")
@@ -480,7 +574,8 @@ async def get_trades(db: Session = Depends(get_db)):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    return [_trade_to_dict(t) for t in trades]
+    visible = [t for t in trades if not _is_legacy_raw_fill_row(t)]
+    return [_trade_to_dict(t) for t in visible]
 
 
 @app.get("/api/v1/trades/wvl")

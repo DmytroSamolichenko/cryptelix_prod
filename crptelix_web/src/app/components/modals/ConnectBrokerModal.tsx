@@ -162,14 +162,16 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
         throw new Error(errorBody || 'Failed to save exchange credentials');
       }
 
-      // Do not block UX on full-history sync: save credentials immediately,
-      // then start sync in the background.
-      void triggerBackgroundSync();
-      setStatusMessage('Keys saved. Trade history sync started in the background.');
+      const credPayload = await credentialsRes.json();
+      const jobId = credPayload?.connect_job_id as string | undefined;
+      setStatusMessage('Keys saved. Syncing balance and trade history...');
       await fetchConnectedExchanges();
-      onConnect();
+      if (jobId) {
+        await pollConnectStatus(jobId);
+      } else {
+        onConnect();
+      }
       setSelectedBroker(null);
-      setTimeout(() => onClose(), 500);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Connection failed';
       setStatusMessage(`Error: ${message}`);
@@ -178,55 +180,65 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
     }
   };
 
-  const triggerBackgroundSync = async () => {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 45000);
-    try {
-      const syncRes = await fetch(`${API_BASE}/api/v1/exchanges/binance/sync-trades`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          limit: 200,
-          account_type: 'spot',
-        }),
-        signal: controller.signal,
-      });
-      if (!syncRes.ok) {
-        const body = await syncRes.text();
-        console.warn('Binance sync failed:', body || syncRes.statusText);
-        return;
-      }
-      const payload = await syncRes.json();
-      const jobId = payload?.job_id as string | undefined;
-      if (!jobId) return;
-      void pollSyncStatus(jobId);
-    } catch (error) {
-      console.warn('Binance sync request failed:', error);
-    } finally {
-      window.clearTimeout(timeout);
-    }
+  const phaseLabels: Record<string, string> = {
+    balance: 'Fetching spot balance',
+    backfill: 'Importing trade history',
+    wac: 'Building closed trades',
+    reconcile: 'Reconciling positions',
+    websocket: 'Starting live connection',
+    done: 'Complete',
   };
 
-  const pollSyncStatus = async (jobId: string) => {
-    for (let attempt = 0; attempt < 24; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+  const pollConnectStatus = async (jobId: string) => {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
       try {
-        const res = await fetch(`${API_BASE}/api/v1/exchanges/binance/sync-trades/${encodeURIComponent(jobId)}`);
+        const res = await fetch(
+          `${API_BASE}/api/v1/exchanges/binance/connect/${encodeURIComponent(jobId)}`
+        );
         if (!res.ok) continue;
         const job = await res.json();
+        const phase = String(job.phase ?? '');
+        if (phase && phaseLabels[phase]) {
+          setStatusMessage(phaseLabels[phase] + '...');
+        }
         if (job.status === 'done') {
-          setStatusMessage(`Sync complete. Trades imported: ${job.synced_count ?? 0}.`);
+          const orphans = Array.isArray(job.orphans) ? job.orphans.length : 0;
+          const tradesCreated = Number(job.trades_created ?? 0);
+          const parts: string[] = [];
+          if (tradesCreated > 0) {
+            parts.push(
+              `${tradesCreated} closed trade${tradesCreated === 1 ? '' : 's'} added to Deal Base`
+            );
+          } else {
+            parts.push('Sync complete (no new closed trades)');
+          }
+          if (orphans > 0) {
+            parts.push(`${orphans} asset(s) need manual cost entry`);
+          } else if (job.ws_status === 'connected') {
+            parts.push('live updates active');
+          } else if (job.ws_error) {
+            parts.push('live connection pending');
+          }
+          setStatusMessage(`Connected. ${parts.join('. ')}.`);
+          window.dispatchEvent(
+            new CustomEvent('cryptelix:trades-synced', {
+              detail: { trades_created: tradesCreated },
+            })
+          );
+          onConnect();
+          setTimeout(() => onClose(), 2500);
           return;
         }
         if (job.status === 'failed') {
-          setStatusMessage(`Sync failed: ${job.error ?? 'unknown error'}`);
+          setStatusMessage(`Connect failed: ${job.error ?? 'unknown error'}`);
           return;
         }
       } catch {
         // transient polling error, continue
       }
     }
-    setStatusMessage('Sync is still running in the background.');
+    setStatusMessage('Connect is still running in the background.');
   };
 
   const selectedCredentials = selectedBroker

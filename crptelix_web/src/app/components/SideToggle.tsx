@@ -28,10 +28,10 @@ export function SideToggle({ value, onChange, disabled = false, className }: Sid
     'h-5 w-5',
     isShort
       ? disabled
-        ? 'text-red-900/55'
+        ? 'text-red-500/75'
         : 'text-red-400 drop-shadow-[0_0_6px_rgba(248,113,113,0.45)]'
       : disabled
-        ? 'text-emerald-900/55'
+        ? 'text-green-600/80'
         : 'text-green-400 drop-shadow-[0_0_6px_rgba(74,222,128,0.45)]'
   );
 
@@ -39,10 +39,10 @@ export function SideToggle({ value, onChange, disabled = false, className }: Sid
     'text-xs font-semibold tracking-wide',
     isShort
       ? disabled
-        ? 'text-red-900/50'
+        ? 'text-red-500/70'
         : 'text-red-400 group-hover:text-red-300'
       : disabled
-        ? 'text-emerald-900/50'
+        ? 'text-green-600/75'
         : 'text-green-400 group-hover:text-green-300'
   );
 

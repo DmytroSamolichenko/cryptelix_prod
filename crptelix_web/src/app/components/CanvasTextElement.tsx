@@ -1,9 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
-import { GripVertical, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import {
+  Bold,
+  GripVertical,
+  Italic,
+  Link2,
+  List,
+  ListOrdered,
+  Minus,
+  Plus,
+  Strikethrough,
+  Underline,
+  X,
+} from 'lucide-react';
+import { scalePx } from '../lib/uiScale';
+import {
+  applyDragTranslate,
+  applyResizeBox,
+  clearDragTransform,
+  pinElementBox,
+  computeResizeBox,
+} from '../lib/canvasInteraction';
 
 export interface TextElementState {
   id: string;
   text: string;
+  html: string;
+  fontSize: number;
   x: number;
   y: number;
   width: number;
@@ -11,10 +33,13 @@ export interface TextElementState {
 }
 
 type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+type InteractionMode = 'idle' | 'drag' | 'resize';
 
-const MIN_WIDTH = 80;
-const MIN_HEIGHT = 40;
-const DEFAULT_FONT_SIZE = 24;
+const MIN_WIDTH = 120;
+const MIN_HEIGHT = 48;
+export const DEFAULT_FONT_SIZE = scalePx(14);
+const FONT_SIZE_OPTIONS = [10, 12, 14, 16, 18, 20, 24, 32].map((n) => scalePx(n));
+const SAVE_DEBOUNCE_MS = 400;
 
 const RESIZE_HANDLES: { id: ResizeHandle; className: string; cursor: string }[] = [
   { id: 'nw', className: 'top-0 left-0 -translate-x-1/2 -translate-y-1/2', cursor: 'cursor-nw-resize' },
@@ -31,7 +56,7 @@ export interface CanvasTextElementProps {
   element: TextElementState;
   isSelected: boolean;
   isEditing: boolean;
-  zoom?: number;
+  zoomRef?: MutableRefObject<number>;
   canvasOrigin?: { x: number; y: number };
   onSelect: () => void;
   onStartEdit: () => void;
@@ -40,15 +65,233 @@ export interface CanvasTextElementProps {
   onRemove?: (id: string) => void;
 }
 
+function htmlToPlainText(html: string): string {
+  if (!html) return '';
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  return (div.textContent ?? div.innerText ?? '').trim();
+}
+
+function isHtmlEmpty(html: string): boolean {
+  return htmlToPlainText(html).length === 0;
+}
+
 function clearTextSelection() {
   window.getSelection()?.removeAllRanges();
+}
+
+function execFormat(command: string, value?: string) {
+  document.execCommand(command, false, value);
+}
+
+function stripNestedFontSizes(root: HTMLElement) {
+  root.querySelectorAll('[style*="font-size"]').forEach((node) => {
+    (node as HTMLElement).style.removeProperty('font-size');
+  });
+}
+
+function applyFontSizeToSelection(fontSize: number) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return;
+
+  const range = selection.getRangeAt(0);
+  if (range.collapsed) return;
+
+  const span = document.createElement('span');
+  span.style.fontSize = `${fontSize}px`;
+  try {
+    range.surroundContents(span);
+  } catch {
+    const fragment = range.extractContents();
+    span.appendChild(fragment);
+    range.insertNode(span);
+  }
+  selection.removeAllRanges();
+  const next = document.createRange();
+  next.selectNodeContents(span);
+  selection.addRange(next);
+}
+
+function applyFontSizeToBlock(el: HTMLElement, fontSize: number) {
+  el.style.fontSize = `${fontSize}px`;
+  stripNestedFontSizes(el);
+}
+
+function nearestFontSize(size: number): number {
+  return FONT_SIZE_OPTIONS.reduce((prev, curr) =>
+    Math.abs(curr - size) < Math.abs(prev - size) ? curr : prev
+  );
+}
+
+const RICH_TEXT_SELECTOR =
+  'b, strong, i, em, u, s, strike, a, ul, ol, li, span[style*="font"], span[style*="color"]';
+
+function stripEmptyBlocks(root: HTMLElement) {
+  root.querySelectorAll('div, p').forEach((node) => {
+    const el = node as HTMLElement;
+    const text = (el.textContent ?? '').replace(/\u00a0/g, ' ').trim();
+    const onlyBreak =
+      el.childNodes.length === 1 &&
+      el.firstChild?.nodeName === 'BR';
+    if (text.length === 0 && (onlyBreak || el.innerHTML.trim() === '')) {
+      el.remove();
+    }
+  });
+}
+
+function dedupeIdenticalBlocks(root: HTMLElement) {
+  const blocks = [...root.children].filter(
+    (node) => node.nodeType === Node.ELEMENT_NODE
+  ) as HTMLElement[];
+  for (let i = blocks.length - 1; i > 0; i--) {
+    const current = (blocks[i].textContent ?? '').replace(/\u00a0/g, ' ').trim();
+    const previous = (blocks[i - 1].textContent ?? '').replace(/\u00a0/g, ' ').trim();
+    if (current.length > 0 && current === previous) {
+      blocks[i].remove();
+    }
+  }
+}
+
+export function normalizeCommittedHtml(html: string): string {
+  if (isHtmlEmpty(html)) return '';
+
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  stripEmptyBlocks(container);
+  dedupeIdenticalBlocks(container);
+
+  const plain = (container.textContent ?? '').replace(/\u00a0/g, ' ').trim();
+  if (!plain) return '';
+
+  const hasRichFormatting = container.querySelector(RICH_TEXT_SELECTOR) !== null;
+  if (!hasRichFormatting) {
+    return plain.replace(/\n/g, '<br>');
+  }
+
+  return container.innerHTML;
+}
+
+function TextFormatToolbar({
+  fontSize,
+  onFontSizeChange,
+  onFormat,
+  onInsertLink,
+  onToolbarPointerDown,
+}: {
+  fontSize: number;
+  onFontSizeChange: (size: number) => void;
+  onFormat: (command: string) => void;
+  onInsertLink: () => void;
+  onToolbarPointerDown?: () => void;
+}) {
+  const currentIndex = FONT_SIZE_OPTIONS.indexOf(fontSize);
+  const canDecrease = currentIndex > 0;
+  const canIncrease = currentIndex >= 0 && currentIndex < FONT_SIZE_OPTIONS.length - 1;
+  const selectValue = currentIndex >= 0 ? fontSize : nearestFontSize(fontSize);
+
+  const keepEditorFocused = (e: React.SyntheticEvent) => {
+    e.stopPropagation();
+    onToolbarPointerDown?.();
+  };
+
+  return (
+    <div
+      className="text-format-toolbar absolute left-0 top-full z-50 mt-2 flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-0.5 rounded-lg border border-zinc-700 bg-zinc-900/95 px-1.5 py-1 shadow-xl backdrop-blur-sm"
+    >
+      <button
+        type="button"
+        title="Decrease font size"
+        disabled={!canDecrease}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => canDecrease && onFontSizeChange(FONT_SIZE_OPTIONS[currentIndex - 1])}
+        className="flex h-7 w-7 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-30"
+      >
+        <Minus className="h-3.5 w-3.5" />
+      </button>
+
+      <select
+        value={selectValue}
+        onPointerDown={keepEditorFocused}
+        onMouseDown={keepEditorFocused}
+        onChange={(e) => onFontSizeChange(Number(e.target.value))}
+        className="h-7 max-w-[52px] cursor-pointer rounded border border-zinc-700 bg-zinc-800 px-1 text-xs text-zinc-200 outline-none"
+        title="Font size"
+      >
+        {FONT_SIZE_OPTIONS.map((size) => (
+          <option key={size} value={size}>
+            {size}
+          </option>
+        ))}
+      </select>
+
+      <button
+        type="button"
+        title="Increase font size"
+        disabled={!canIncrease}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => canIncrease && onFontSizeChange(FONT_SIZE_OPTIONS[currentIndex + 1])}
+        className="flex h-7 w-7 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-30"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+
+      <div className="mx-0.5 h-5 w-px bg-zinc-700" />
+
+      <ToolbarButton title="Bold" onClick={() => onFormat('bold')}>
+        <Bold className="h-3.5 w-3.5" />
+      </ToolbarButton>
+      <ToolbarButton title="Italic" onClick={() => onFormat('italic')}>
+        <Italic className="h-3.5 w-3.5" />
+      </ToolbarButton>
+      <ToolbarButton title="Underline" onClick={() => onFormat('underline')}>
+        <Underline className="h-3.5 w-3.5" />
+      </ToolbarButton>
+      <ToolbarButton title="Strikethrough" onClick={() => onFormat('strikeThrough')}>
+        <Strikethrough className="h-3.5 w-3.5" />
+      </ToolbarButton>
+
+      <div className="mx-0.5 h-5 w-px bg-zinc-700" />
+
+      <ToolbarButton title="Bullet list" onClick={() => onFormat('insertUnorderedList')}>
+        <List className="h-3.5 w-3.5" />
+      </ToolbarButton>
+      <ToolbarButton title="Numbered list" onClick={() => onFormat('insertOrderedList')}>
+        <ListOrdered className="h-3.5 w-3.5" />
+      </ToolbarButton>
+      <ToolbarButton title="Link" onClick={onInsertLink}>
+        <Link2 className="h-3.5 w-3.5" />
+      </ToolbarButton>
+    </div>
+  );
+}
+
+function ToolbarButton({
+  children,
+  title,
+  onClick,
+}: {
+  children: ReactNode;
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+      className="flex h-7 w-7 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+    >
+      {children}
+    </button>
+  );
 }
 
 export function CanvasTextElement({
   element,
   isSelected,
   isEditing,
-  zoom = 1,
+  zoomRef,
   canvasOrigin = { x: 0, y: 0 },
   onSelect,
   onStartEdit,
@@ -56,11 +299,19 @@ export function CanvasTextElement({
   onUpdate,
   onRemove,
 }: CanvasTextElementProps) {
-  const { id, text, x, y, width, height } = element;
+  const { id, text, html, fontSize, x, y, width, height } = element;
 
-  const [isDragging, setIsDragging] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
+  const [isInteracting, setIsInteracting] = useState(false);
+  const interactionRef = useRef<InteractionMode>('idle');
   const editableRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const draftHtmlRef = useRef(html);
+  const isEditingRef = useRef(isEditing);
+  const suppressBlurCommitRef = useRef(false);
+  const editEndCommittedRef = useRef(false);
+  const saveTimerRef = useRef<number | undefined>(undefined);
+  const pendingCommandRef = useRef<string | null>(null);
+  const pendingLinkRef = useRef(false);
   const resizeHandleRef = useRef<ResizeHandle>('se');
   const dragStartRef = useRef({
     clientX: 0,
@@ -69,92 +320,245 @@ export function CanvasTextElement({
     y: 0,
     width: 0,
     height: 0,
+    originX: 0,
+    originY: 0,
   });
 
   const displayX = canvasOrigin.x + x;
   const displayY = canvasOrigin.y + y;
+  const committedHtml = normalizeCommittedHtml(html);
+  const isEmpty = isHtmlEmpty(committedHtml);
+  const normalizedFontSize = nearestFontSize(fontSize);
+  const [showPlaceholder, setShowPlaceholder] = useState(isEmpty);
+
+  useEffect(() => {
+    isEditingRef.current = isEditing;
+    if (isEditing) {
+      editEndCommittedRef.current = false;
+    }
+  }, [isEditing]);
+
+  useEffect(() => {
+    draftHtmlRef.current = html;
+  }, [html]);
+
+  useEffect(() => {
+    if (isEditing) {
+      setShowPlaceholder(isEmpty);
+    } else {
+      setShowPlaceholder(false);
+    }
+  }, [isEditing, isEmpty]);
+
+  const buildState = useCallback(
+    (nextHtml: string, nextFontSize = normalizedFontSize): TextElementState => ({
+      id,
+      html: nextHtml,
+      text: htmlToPlainText(nextHtml),
+      fontSize: nextFontSize,
+      x,
+      y,
+      width,
+      height,
+    }),
+    [id, normalizedFontSize, x, y, width, height]
+  );
+
+  const readDraftHtml = useCallback(() => {
+    const el = editableRef.current;
+    const raw = el?.innerHTML ?? draftHtmlRef.current;
+    return normalizeCommittedHtml(raw);
+  }, []);
+
+  const commitTextWithHtml = useCallback(
+    (rawHtml: string, endEdit: boolean) => {
+      const nextHtml = normalizeCommittedHtml(rawHtml);
+      draftHtmlRef.current = nextHtml;
+      setShowPlaceholder(isHtmlEmpty(nextHtml));
+      if (!endEdit || !editEndCommittedRef.current) {
+        onUpdate(buildState(nextHtml));
+      }
+      if (!endEdit) return;
+      if (editEndCommittedRef.current) return;
+      editEndCommittedRef.current = true;
+      onEndEdit();
+    },
+    [buildState, onEndEdit, onUpdate]
+  );
+
+  const commitText = useCallback(
+    (endEdit: boolean) => {
+      commitTextWithHtml(readDraftHtml(), endEdit);
+    },
+    [commitTextWithHtml, readDraftHtml]
+  );
+
+  const persistDraft = useCallback(() => {
+    const nextHtml = readDraftHtml();
+    draftHtmlRef.current = nextHtml;
+    onUpdate(buildState(nextHtml));
+  }, [buildState, onUpdate, readDraftHtml]);
+
+  const scheduleSave = useCallback(() => {
+    window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => persistDraft(), SAVE_DEBOUNCE_MS);
+  }, [persistDraft]);
 
   useEffect(() => {
     if (!isEditing || !editableRef.current) return;
     const el = editableRef.current;
-    el.innerText = text;
+    const seedHtml = normalizeCommittedHtml(html || '');
+    el.innerHTML = seedHtml;
+    draftHtmlRef.current = seedHtml;
+    applyFontSizeToBlock(el, normalizedFontSize);
+    setShowPlaceholder(isHtmlEmpty(seedHtml));
     el.focus();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    range.collapse(false);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-  }, [isEditing, text]);
+
+    if (pendingCommandRef.current) {
+      execFormat(pendingCommandRef.current);
+      pendingCommandRef.current = null;
+      scheduleSave();
+    } else if (pendingLinkRef.current) {
+      pendingLinkRef.current = false;
+      const url = window.prompt('Enter link URL');
+      if (url?.trim()) {
+        execFormat('createLink', url.trim());
+        scheduleSave();
+      }
+    } else if (!isHtmlEmpty(seedHtml)) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }
+  }, [isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const applyResize = (handle: ResizeHandle, dx: number, dy: number) => {
-      const start = dragStartRef.current;
-      let newW = start.width;
-      let newH = start.height;
-      let newX = start.x;
-      let newY = start.y;
+    return () => window.clearTimeout(saveTimerRef.current);
+  }, []);
 
-      if (handle.includes('e')) newW = start.width + dx;
-      if (handle.includes('w')) {
-        newW = start.width - dx;
-        newX = start.x + dx;
-      }
-      if (handle.includes('s')) newH = start.height + dy;
-      if (handle.includes('n')) {
-        newH = start.height - dy;
-        newY = start.y + dy;
-      }
+  useEffect(() => {
+    if (!isEditing) return;
 
-      if (newW < MIN_WIDTH) {
-        if (handle.includes('w')) newX = start.x + start.width - MIN_WIDTH;
-        newW = MIN_WIDTH;
-      }
-      if (newH < MIN_HEIGHT) {
-        if (handle.includes('n')) newY = start.y + start.height - MIN_HEIGHT;
-        newH = MIN_HEIGHT;
-      }
+    const handleOutsidePointerDown = (event: Event) => {
+      const root = rootRef.current;
+      const target = event.target as Node | null;
+      if (!root || !target) return;
+      if (root.contains(target)) return;
+      if ((event.target as HTMLElement).closest?.('.text-format-toolbar')) return;
+      if (editEndCommittedRef.current) return;
 
-      onUpdate({ id, text, x: newX, y: newY, width: newW, height: newH });
+      window.clearTimeout(saveTimerRef.current);
+      commitText(true);
     };
 
-    const handleMouseMove = (e: MouseEvent) => {
-      e.preventDefault();
-      const start = dragStartRef.current;
-      const dx = (e.clientX - start.clientX) / zoom;
-      const dy = (e.clientY - start.clientY) / zoom;
+    document.addEventListener('pointerdown', handleOutsidePointerDown, true);
+    document.addEventListener('touchstart', handleOutsidePointerDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
+      document.removeEventListener('touchstart', handleOutsidePointerDown, true);
+    };
+  }, [isEditing, commitText]);
 
-      if (isDragging) {
+  useEffect(() => {
+    if (!isInteracting) return;
+    const prev = document.body.style.userSelect;
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.body.style.userSelect = prev;
+    };
+  }, [isInteracting]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      const mode = interactionRef.current;
+      if (mode === 'idle') return;
+
+      e.preventDefault();
+      const el = rootRef.current;
+      if (!el) return;
+
+      const start = dragStartRef.current;
+      const z = zoomRef?.current ?? 1;
+      const dx = (e.clientX - start.clientX) / z;
+      const dy = (e.clientY - start.clientY) / z;
+
+      if (mode === 'drag') {
+        applyDragTranslate(el, dx, dy);
+        return;
+      }
+
+      const box = computeResizeBox(
+        resizeHandleRef.current,
+        { x: start.x, y: start.y, width: start.width, height: start.height },
+        dx,
+        dy,
+        MIN_WIDTH,
+        MIN_HEIGHT
+      );
+      applyResizeBox(el, start.originX, start.originY, box.x, box.y, box.width, box.height);
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      const mode = interactionRef.current;
+      if (mode === 'idle') return;
+
+      interactionRef.current = 'idle';
+
+      const el = rootRef.current;
+      const start = dragStartRef.current;
+      const z = zoomRef?.current ?? 1;
+      const dx = (e.clientX - start.clientX) / z;
+      const dy = (e.clientY - start.clientY) / z;
+
+      if (mode === 'drag') {
+        if (el) clearDragTransform(el);
         onUpdate({
           id,
           text,
+          html,
+          fontSize: normalizedFontSize,
           x: start.x + dx,
           y: start.y + dy,
           width,
           height,
         });
-      } else if (isResizing) {
-        applyResize(resizeHandleRef.current, dx, dy);
+      } else {
+        const box = computeResizeBox(
+          resizeHandleRef.current,
+          { x: start.x, y: start.y, width: start.width, height: start.height },
+          dx,
+          dy,
+          MIN_WIDTH,
+          MIN_HEIGHT
+        );
+        if (el) pinElementBox(el, start.originX, start.originY, box.x, box.y, box.width, box.height);
+        onUpdate({
+          id,
+          text,
+          html,
+          fontSize: normalizedFontSize,
+          x: box.x,
+          y: box.y,
+          width: box.width,
+          height: box.height,
+        });
       }
+
+      setIsInteracting(false);
     };
 
-    const handleMouseUp = () => {
-      setIsDragging(false);
-      setIsResizing(false);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('pointerup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('pointerup', handleMouseUp);
     };
-
-    if (isDragging || isResizing) {
-      const prevUserSelect = document.body.style.userSelect;
-      document.body.style.userSelect = 'none';
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        document.body.style.userSelect = prevUserSelect;
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [isDragging, isResizing, id, text, width, height, onUpdate, zoom]);
+  }, [id, text, html, normalizedFontSize, width, height, onUpdate, zoomRef]);
 
   const beginPointerAction = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -162,12 +566,12 @@ export function CanvasTextElement({
     clearTextSelection();
   };
 
-  const handleDragStart = (e: React.MouseEvent) => {
-    if (isEditing) return;
-    if ((e.target as HTMLElement).closest('.resize-handle')) return;
+  const startInteraction = (mode: InteractionMode, e: React.MouseEvent, handle?: ResizeHandle) => {
     beginPointerAction(e);
     onSelect();
-    setIsDragging(true);
+    if (mode === 'resize' && handle) resizeHandleRef.current = handle;
+    interactionRef.current = mode;
+    setIsInteracting(true);
     dragStartRef.current = {
       clientX: e.clientX,
       clientY: e.clientY,
@@ -175,73 +579,145 @@ export function CanvasTextElement({
       y,
       width,
       height,
+      originX: canvasOrigin.x,
+      originY: canvasOrigin.y,
     };
+  };
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.resize-handle')) return;
+    startInteraction('drag', e);
   };
 
   const handleResizeStart = (handle: ResizeHandle) => (e: React.MouseEvent) => {
-    if (isEditing) return;
-    beginPointerAction(e);
+    startInteraction('resize', e, handle);
+  };
+
+  const handleActivate = (e: React.MouseEvent) => {
+    e.stopPropagation();
     onSelect();
-    resizeHandleRef.current = handle;
-    setIsResizing(true);
-    dragStartRef.current = {
-      clientX: e.clientX,
-      clientY: e.clientY,
-      x,
-      y,
-      width,
-      height,
-    };
+    onStartEdit();
   };
 
-  const commitText = () => {
-    const next = editableRef.current?.innerText ?? text;
-    const trimmed = next.replace(/\n$/, '');
-    onUpdate({ id, text: trimmed, x, y, width, height });
-    onEndEdit();
+  const handleBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    if (!isEditingRef.current) return;
+    if (editEndCommittedRef.current) return;
+
+    const related = e.relatedTarget as HTMLElement | null;
+    if (related?.closest('.text-format-toolbar')) return;
+
+    const capturedHtml = readDraftHtml();
+
+    window.setTimeout(() => {
+      if (editEndCommittedRef.current) return;
+      if (suppressBlurCommitRef.current) return;
+      if (document.activeElement?.closest('.text-format-toolbar')) return;
+      window.clearTimeout(saveTimerRef.current);
+      commitTextWithHtml(capturedHtml, true);
+    }, 0);
   };
 
-  const handleBlur = () => {
-    if (!isEditing) return;
-    commitText();
+  const handleToolbarPointerDown = () => {
+    suppressBlurCommitRef.current = true;
+    window.setTimeout(() => {
+      suppressBlurCommitRef.current = false;
+    }, 300);
+  };
+
+  const handleInput = () => {
+    const el = editableRef.current;
+    if (el) draftHtmlRef.current = el.innerHTML;
+    setShowPlaceholder(!el || isHtmlEmpty(el.innerHTML));
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     e.stopPropagation();
     if (e.key === 'Escape') {
       e.preventDefault();
-      if (editableRef.current) editableRef.current.innerText = text;
+      if (editableRef.current) editableRef.current.innerHTML = html;
+      setShowPlaceholder(isHtmlEmpty(html));
+      window.clearTimeout(saveTimerRef.current);
       onEndEdit();
     }
   };
 
-  const displayText = text.trim() || 'Double-click to edit';
+  const handleFormat = (command: string) => {
+    if (!isEditing) {
+      pendingCommandRef.current = command;
+      onStartEdit();
+      return;
+    }
+    editableRef.current?.focus();
+    execFormat(command);
+    scheduleSave();
+  };
+
+  const handleFontSizeChange = (size: number) => {
+    const nextSize = nearestFontSize(size);
+    const el = editableRef.current;
+
+    if (isEditing && el) {
+      el.focus();
+      const selection = window.getSelection();
+      const hasSelection =
+        selection &&
+        selection.rangeCount > 0 &&
+        el.contains(selection.anchorNode ?? null) &&
+        !selection.getRangeAt(0).collapsed;
+
+      if (hasSelection) {
+        applyFontSizeToSelection(nextSize);
+      } else {
+        applyFontSizeToBlock(el, nextSize);
+      }
+      const nextHtml = normalizeCommittedHtml(el.innerHTML);
+      draftHtmlRef.current = nextHtml;
+      setShowPlaceholder(isHtmlEmpty(nextHtml));
+      onUpdate(buildState(nextHtml, nextSize));
+      scheduleSave();
+      return;
+    }
+
+    onUpdate({ id, text, html: committedHtml, fontSize: nextSize, x, y, width, height });
+  };
+
+  const handleInsertLink = () => {
+    if (!isEditing) {
+      pendingLinkRef.current = true;
+      onStartEdit();
+      return;
+    }
+    editableRef.current?.focus();
+    const url = window.prompt('Enter link URL');
+    if (url?.trim()) {
+      execFormat('createLink', url.trim());
+      scheduleSave();
+    }
+  };
+
+  const contentStyle = {
+    fontSize: `${normalizedFontSize}px`,
+    lineHeight: 1.5,
+    fontWeight: 400,
+    fontFamily: 'inherit',
+    whiteSpace: 'pre-wrap' as const,
+    wordBreak: 'break-word' as const,
+    caretColor: '#facc15',
+  };
 
   return (
     <div
-      className={`absolute ${isDragging || isResizing ? 'z-50 select-none' : isSelected ? 'z-40' : 'z-10'}`}
+      ref={rootRef}
+      className={`absolute ${isInteracting ? 'z-50 select-none' : isSelected ? 'z-40' : 'z-10'}`}
       style={{
         left: `${displayX}px`,
         top: `${displayY}px`,
         width: `${width}px`,
         height: `${height}px`,
       }}
-      onMouseDown={(e) => {
-        if (isEditing) {
-          e.stopPropagation();
-          return;
-        }
-        e.stopPropagation();
-        onSelect();
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        onSelect();
-        onStartEdit();
-      }}
     >
       {isSelected && (
-        <div className="absolute -top-9 left-0 z-30 flex items-center gap-0.5 rounded-md border border-zinc-700 bg-zinc-900/95 px-1 py-0.5 shadow-lg">
+        <div className="absolute -top-9 left-0 z-50 flex items-center gap-0.5 rounded-md border border-zinc-700 bg-zinc-900/95 px-1 py-0.5 shadow-lg">
           <div
             className="cursor-move rounded p-1 hover:bg-zinc-800"
             onMouseDown={handleDragStart}
@@ -263,61 +739,68 @@ export function CanvasTextElement({
       )}
 
       <div
-        className={`relative h-full w-full rounded-sm transition-shadow ${
+        className={`relative h-full w-full overflow-hidden rounded-sm ${
           isSelected
             ? 'ring-2 ring-yellow-400/90 ring-offset-2 ring-offset-zinc-950'
             : 'hover:ring-1 hover:ring-zinc-600/60'
         }`}
       >
         {isEditing ? (
-          <div
-            ref={editableRef}
-            contentEditable
-            suppressContentEditableWarning
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-            onMouseDown={(e) => e.stopPropagation()}
-            className="h-full w-full overflow-hidden break-words px-1 py-1 text-white outline-none"
-            style={{
-              fontSize: `${DEFAULT_FONT_SIZE}px`,
-              lineHeight: 1.35,
-              fontWeight: 500,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              caretColor: '#facc15',
-            }}
-          />
+          <>
+            <div
+              ref={editableRef}
+              contentEditable
+              suppressContentEditableWarning
+              onBlur={handleBlur}
+              onInput={handleInput}
+              onKeyDown={handleKeyDown}
+              onMouseDown={(e) => e.stopPropagation()}
+              className="canvas-text-editable widget-scrollbar relative z-10 h-full w-full overflow-y-auto px-2 py-1.5 text-gray-300 outline-none"
+              style={contentStyle}
+            />
+            {showPlaceholder && (
+              <div
+                className="pointer-events-none absolute inset-0 z-0 px-2 py-1.5 text-zinc-500"
+                style={contentStyle}
+                aria-hidden
+              >
+                Type something
+              </div>
+            )}
+          </>
         ) : (
           <div
-            className={`h-full w-full overflow-hidden break-words px-1 py-1 ${
+            className={`canvas-text-display relative h-full w-full overflow-hidden px-2 py-1.5 ${
               isSelected ? 'cursor-text' : 'cursor-default'
-            } ${!text.trim() ? 'text-zinc-500' : 'text-white'}`}
-            style={{
-              fontSize: `${DEFAULT_FONT_SIZE}px`,
-              lineHeight: 1.35,
-              fontWeight: 500,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-            }}
-            onMouseDown={handleDragStart}
+            } ${isEmpty ? 'text-zinc-500' : 'text-gray-300'}`}
+            style={contentStyle}
+            onMouseDown={handleActivate}
+            {...(!isEmpty ? { dangerouslySetInnerHTML: { __html: committedHtml } } : {})}
           >
-            {displayText}
+            {isEmpty ? 'Type something' : null}
           </div>
         )}
-
-        {isSelected && !isEditing && (
-          <>
-            <div className="pointer-events-none absolute inset-0 rounded-sm border border-yellow-400/50" />
-            {RESIZE_HANDLES.map(({ id: handleId, className, cursor }) => (
-              <div
-                key={handleId}
-                className={`resize-handle absolute z-20 h-2.5 w-2.5 select-none rounded-full border-2 border-yellow-400 bg-zinc-950 ${className} ${cursor}`}
-                onMouseDown={handleResizeStart(handleId)}
-              />
-            ))}
-          </>
-        )}
       </div>
+
+      {isSelected && (
+        <>
+          <div className="pointer-events-none absolute inset-0 rounded-sm border border-yellow-400/50" />
+          {RESIZE_HANDLES.map(({ id: handleId, className, cursor }) => (
+            <div
+              key={handleId}
+              className={`resize-handle absolute z-50 h-3 w-3 select-none rounded-full border-2 border-yellow-400 bg-zinc-950 ${className} ${cursor}`}
+              onMouseDown={handleResizeStart(handleId)}
+            />
+          ))}
+          <TextFormatToolbar
+            fontSize={normalizedFontSize}
+            onFontSizeChange={handleFontSizeChange}
+            onFormat={handleFormat}
+            onInsertLink={handleInsertLink}
+            onToolbarPointerDown={handleToolbarPointerDown}
+          />
+        </>
+      )}
     </div>
   );
 }
