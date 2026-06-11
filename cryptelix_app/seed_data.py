@@ -2,7 +2,10 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import random
 
-from database import DEFAULT_USER_ID, SessionLocal
+from database import SessionLocal
+
+# Explicit dev-only target user when seeding mock trades locally.
+SEED_USER_ID = 1
 from models import Trade
 
 
@@ -48,7 +51,7 @@ def _generate_mock_trades(num_trades: int = 10) -> list[Trade]:
             notes=None,
             exchange_trade_id=f"mock-binance-{i+1}",
             exchange_name="binance",
-            user_id=DEFAULT_USER_ID,  # TODO: MULTI-USER-MIGRATION
+            user_id=SEED_USER_ID,
         )
         trades.append(trade)
 

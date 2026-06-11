@@ -7,7 +7,7 @@ from decimal import Decimal
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from database import DEFAULT_USER_ID, SessionLocal
+from database import SessionLocal
 from models import Trade
 
 
@@ -35,6 +35,7 @@ def _to_decimal(value) -> Decimal:
 
 def get_user_financial_summary(
     db: Session,
+    user_id: int,
     start_date: datetime | None = None,
 ) -> FinancialSummary:
     """
@@ -46,7 +47,7 @@ def get_user_financial_summary(
     trades_query = db.query(
         func.coalesce(func.sum(Trade.pnl), 0),
         func.coalesce(func.sum(Trade.commission), 0),
-    ).filter(Trade.user_id == DEFAULT_USER_ID)  # TODO: MULTI-USER-MIGRATION
+    ).filter(Trade.user_id == user_id)
 
     if start_date is not None:
         trades_query = trades_query.filter(Trade.date >= start_date)
@@ -66,7 +67,7 @@ def get_user_financial_summary(
 if __name__ == "__main__":
     session: Session = SessionLocal()
     try:
-        summary = get_user_financial_summary(session)
+        summary = get_user_financial_summary(session, user_id=1)
         print("Net Trading PnL:", summary.net_trading_pnl)
         print("Current Equity:", summary.current_equity)
     finally:

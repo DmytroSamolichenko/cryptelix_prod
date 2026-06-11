@@ -1,8 +1,23 @@
-const STORAGE_KEY = 'cryptelix-mock-auth';
+const STORAGE_KEY = 'cryptelix-auth';
 
-export interface MockUser {
+export interface AuthUser {
+  id: number;
   email: string;
+  username?: string | null;
   signedInAt: string;
+}
+
+/** @deprecated Use AuthUser */
+export type MockUser = AuthUser;
+
+export interface AuthSession {
+  accessToken: string;
+  user: AuthUser;
+}
+
+interface StoredAuth {
+  accessToken: string;
+  user: AuthUser;
 }
 
 export function isValidEmail(value: string): boolean {
@@ -11,32 +26,74 @@ export function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
 }
 
-export function loadMockUser(): MockUser | null {
+export function getAccessToken(): string | null {
+  const session = loadAuth();
+  return session?.accessToken ?? null;
+}
+
+export function loadAuth(): AuthSession | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<MockUser>;
-    if (!parsed?.email || typeof parsed.email !== 'string') return null;
+    const parsed = JSON.parse(raw) as Partial<StoredAuth>;
+    if (!parsed?.accessToken || !parsed.user?.email || typeof parsed.user.id !== 'number') {
+      return null;
+    }
     return {
-      email: parsed.email,
-      signedInAt: typeof parsed.signedInAt === 'string' ? parsed.signedInAt : new Date().toISOString(),
+      accessToken: parsed.accessToken,
+      user: {
+        id: parsed.user.id,
+        email: parsed.user.email,
+        username: parsed.user.username ?? null,
+        signedInAt:
+          typeof parsed.user.signedInAt === 'string'
+            ? parsed.user.signedInAt
+            : new Date().toISOString(),
+      },
     };
   } catch {
     return null;
   }
 }
 
-export function saveMockUser(email: string): MockUser {
-  const user: MockUser = {
-    email: email.trim().toLowerCase(),
-    signedInAt: new Date().toISOString(),
+export function saveAuth(session: AuthSession): AuthUser {
+  const payload: StoredAuth = {
+    accessToken: session.accessToken,
+    user: {
+      ...session.user,
+      email: session.user.email.trim().toLowerCase(),
+      signedInAt: session.user.signedInAt || new Date().toISOString(),
+    },
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
-  return user;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  return payload.user;
 }
 
-export function clearMockUser(): void {
+export function clearAuth(): void {
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem('cryptelix-mock-auth');
+}
+
+/** @deprecated Use loadAuth */
+export function loadMockUser(): AuthUser | null {
+  return loadAuth()?.user ?? null;
+}
+
+/** @deprecated Use saveAuth */
+export function saveMockUser(email: string): AuthUser {
+  return saveAuth({
+    accessToken: '',
+    user: {
+      id: 0,
+      email: email.trim().toLowerCase(),
+      signedInAt: new Date().toISOString(),
+    },
+  });
+}
+
+/** @deprecated Use clearAuth */
+export function clearMockUser(): void {
+  clearAuth();
 }
 
 export function displayNameFromEmail(email: string): string {

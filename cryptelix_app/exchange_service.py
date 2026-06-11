@@ -7,9 +7,102 @@ import ccxt
 import ccxt.async_support as ccxt_async
 from sqlalchemy.orm import Session
 
-from database import DEFAULT_USER_ID, SessionLocal
+from database import SessionLocal
 from models import Trade, APIKey
 from security import decrypt_data
+
+
+class ApiKeyPermissionError(Exception):
+    """The provided exchange API key fails the read-only safety policy (C3)."""
+
+
+# Binance API-key permission flags that must NOT be enabled for a journaling app.
+# The app only reads balances/trades, so trading and withdrawals are never needed.
+_FORBIDDEN_BINANCE_PERMISSIONS = (
+    "enableWithdrawals",
+    "enableInternalTransfer",
+    "enableSpotAndMarginTrading",
+    "enableMargin",
+    "enableFutures",
+    "enableVanillaOptions",
+)
+
+_FORBIDDEN_PERMISSION_LABELS = {
+    "enableWithdrawals": "withdrawals",
+    "enableInternalTransfer": "internal transfer",
+    "enableSpotAndMarginTrading": "spot & margin trading",
+    "enableMargin": "margin",
+    "enableFutures": "futures",
+    "enableVanillaOptions": "options",
+}
+
+
+async def assert_binance_key_is_read_only(api_key: str, api_secret: str) -> None:
+    """
+    Verify that a Binance API key is read-only before it is stored (C3).
+
+    Rejects keys that can trade or withdraw funds. This limits the blast radius:
+    even if the encrypted key and master key were ever exposed, an attacker could
+    at most read trade history, never move funds.
+
+    Raises ApiKeyPermissionError with a user-facing message on any violation,
+    invalid credentials, or if permissions cannot be verified (fail closed).
+    """
+    client = ccxt_async.binance(
+        {
+            "apiKey": api_key,
+            "secret": api_secret,
+            "enableRateLimit": True,
+            "options": {"adjustForTimeDifference": True, "recvWindow": 15000},
+        }
+    )
+    try:
+        try:
+            restrictions = await client.sapi_get_account_apirestrictions()
+        except ccxt.AuthenticationError as exc:
+            raise ApiKeyPermissionError(
+                "Invalid Binance API key or secret."
+            ) from exc
+        except ccxt.BaseError as exc:
+            # Fail closed: if we cannot confirm the key is read-only, do not store it.
+            raise ApiKeyPermissionError(
+                "Could not verify the API key permissions with Binance. "
+                "Please try again."
+            ) from exc
+
+        if not _flag_is_true(restrictions.get("enableReading")):
+            raise ApiKeyPermissionError(
+                "The API key does not have read access. Enable only 'Enable Reading' "
+                "when creating the key."
+            )
+
+        enabled_forbidden = [
+            _FORBIDDEN_PERMISSION_LABELS[flag]
+            for flag in _FORBIDDEN_BINANCE_PERMISSIONS
+            if _flag_is_true(restrictions.get(flag))
+        ]
+        if enabled_forbidden:
+            raise ApiKeyPermissionError(
+                "For security, Cryptelix only accepts read-only API keys. "
+                "This key has extra permissions enabled: "
+                f"{', '.join(enabled_forbidden)}. "
+                "Create a new Binance key with only 'Enable Reading' turned on."
+            )
+    finally:
+        try:
+            await client.close()
+        except Exception:
+            pass
+
+
+def _flag_is_true(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes"}
+    return False
 
 
 class ExchangeService:
@@ -20,9 +113,17 @@ class ExchangeService:
     any other ccxt exchange id (e.g. "bybit", "okx", etc.).
     """
 
-    def __init__(self, exchange_id: str, db: Session, api_key: str, api_secret: str):
+    def __init__(
+        self,
+        exchange_id: str,
+        db: Session,
+        api_key: str,
+        api_secret: str,
+        user_id: int,
+    ):
         self.exchange_id = exchange_id
         self.db = db
+        self.user_id = user_id
 
         exchange_cls = getattr(ccxt_async, exchange_id, None)
         if exchange_cls is None:
@@ -42,7 +143,12 @@ class ExchangeService:
         )
 
     @classmethod
-    def from_db_credentials(cls, exchange_name: str, db: Session) -> "ExchangeService":
+    def from_db_credentials(
+        cls,
+        exchange_name: str,
+        db: Session,
+        user_id: int,
+    ) -> "ExchangeService":
         """
         Factory that pulls encrypted API credentials from the database.
 
@@ -52,7 +158,7 @@ class ExchangeService:
             db.query(APIKey)
             .filter(
                 APIKey.exchange_name.ilike(exchange_name),
-                APIKey.user_id == DEFAULT_USER_ID,  # TODO: MULTI-USER-MIGRATION
+                APIKey.user_id == user_id,
             )
             .first()
         )
@@ -71,6 +177,7 @@ class ExchangeService:
         return cls(
             exchange_id=exchange_id,
             db=db,
+            user_id=user_id,
             api_key=decrypted_key,
             api_secret=decrypted_secret,
         )
@@ -260,7 +367,7 @@ class ExchangeService:
                 self.db.query(Trade)
                 .filter(
                     Trade.exchange_trade_id == exchange_trade_id,
-                    Trade.user_id == DEFAULT_USER_ID,  # TODO: MULTI-USER-MIGRATION
+                    Trade.user_id == self.user_id,
                 )
                 .first()
             )
@@ -293,14 +400,16 @@ class ExchangeService:
                 exchange_trade_id=exchange_trade_id,
                 exchange_name=self.exchange_id,
                 account_type=account_type,
-                user_id=DEFAULT_USER_ID,  # TODO: MULTI-USER-MIGRATION
+                user_id=self.user_id,
             )
             self.db.add(trade_obj)
             synced_trades.append(trade_obj)
         return synced_trades
 
 
-async def _test_binance_connection(symbol: str = "BTC/USDT") -> None:
+async def _test_binance_connection(
+    symbol: str = "BTC/USDT", *, user_id: int = 1
+) -> None:
     """
     Simple integration test for Binance.
 
@@ -310,7 +419,7 @@ async def _test_binance_connection(symbol: str = "BTC/USDT") -> None:
     """
     db: Session = SessionLocal()
     try:
-        service = ExchangeService.from_db_credentials("Binance", db)
+        service = ExchangeService.from_db_credentials("Binance", db, user_id=user_id)
         try:
             await service.client.load_markets()
 

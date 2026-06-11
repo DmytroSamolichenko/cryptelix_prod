@@ -13,6 +13,7 @@ import {
   ReferenceDot
 } from 'recharts';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { apiFetch } from '../lib/apiClient';
 
 // Time period type
 type TimePeriod = '24h' | '7d' | '1m' | '3m' | '1y' | 'All';
@@ -371,7 +372,7 @@ export function PortfolioWidget() {
   useEffect(() => {
     const fetchSummary = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/v1/summary');
+        const response = await apiFetch('/api/v1/summary');
         if (!response.ok) {
           console.error('Failed to fetch financial summary', response.statusText);
           return;

@@ -17,7 +17,7 @@ import {
   YAxis,
 } from 'recharts';
 
-const API_BASE = 'http://localhost:8000';
+import { apiFetch } from '../lib/apiClient';
 
 const WEEKDAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 
@@ -92,8 +92,8 @@ export function WvlWidget() {
     const endStr = format(weekEnd, 'yyyy-MM-dd');
     setLoading(true);
     try {
-      const res = await fetch(
-        `${API_BASE}/api/v1/trades/wvl?start_date=${encodeURIComponent(startStr)}&end_date=${encodeURIComponent(endStr)}`
+      const res = await apiFetch(
+        `/api/v1/trades/wvl?start_date=${encodeURIComponent(startStr)}&end_date=${encodeURIComponent(endStr)}`
       );
       if (!res.ok) {
         setChartData(emptySeriesForWeek(weekStart));

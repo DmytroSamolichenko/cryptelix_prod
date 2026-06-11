@@ -90,3 +90,35 @@ class ChatSendRequest(BaseModel):
     session_id: UUID | None = None
     message: str = Field(..., min_length=1, max_length=32000)
 
+
+class AuthEmailRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+
+
+class AuthActivateRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+    password: str = Field(..., min_length=8, max_length=128)
+    invite_code: str = Field(..., min_length=1, max_length=128)
+
+
+class AuthLoginRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class UserPublic(BaseModel):
+    id: int
+    email: str
+    username: str | None = None
+
+
+class AuthTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserPublic
+
+
+class CheckEmailResponse(BaseModel):
+    status: str
+    email: str
+

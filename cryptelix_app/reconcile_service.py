@@ -5,7 +5,6 @@ from decimal import Decimal
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from database import DEFAULT_USER_ID
 from models import BalanceSpotTransaction, PairInventory
 from price_service import DECIMAL_ZERO, get_asset_usdt_rate
 
@@ -70,7 +69,7 @@ def _computed_base_inventory(db: Session, user_id: int) -> dict[str, Decimal]:
 async def detect_orphans(
     db: Session,
     client,
-    user_id: int = DEFAULT_USER_ID,
+    user_id: int,
 ) -> list[dict]:
     balance = _latest_balance_snapshots(db, user_id)
     computed = _computed_base_inventory(db, user_id)

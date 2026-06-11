@@ -9,10 +9,6 @@ from dotenv import load_dotenv
 # Bootstrap env before any other cryptelix_app imports (import order loads database via analytics).
 _ENV_FILE = (Path(__file__).resolve().parent / ".env").resolve()
 load_dotenv(_ENV_FILE, override=True)
-print(
-    "[SYSTEM] New Key detected. Length:",
-    len((os.getenv("OPENAI_API_KEY") or "").strip()),
-)
 
 from collections import defaultdict
 from datetime import datetime, date as date_type, time, timedelta
@@ -20,22 +16,34 @@ from typing import Any, Dict, List
 from uuid import UUID, uuid4
 
 import io
-import json
+import logging
 
 import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from starlette.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 from analytics_service import get_user_financial_summary
 from ai_service import AIAnalysisError, analyze_trade_sync
 import chat_service as chat_svc
-from database import DEFAULT_USER_ID, SessionLocal, get_db
+from auth import (
+    activate_user,
+    check_email_status,
+    get_current_user,
+    login_user,
+    logout_user,
+    user_to_public,
+)
+from database import SessionLocal, get_db
 from binance_connect_service import run_binance_connect_pipeline
+from exchange_service import ApiKeyPermissionError, assert_binance_key_is_read_only
 from binance_ws_listener import get_ws_status, stop_binance_ws
-from db_migrations import ensure_balance_spot_constraints
+from db_migrations import ensure_balance_spot_constraints, ensure_multi_user_constraints
 from models import BalanceSpotTransaction as BalanceSpotTransactionModel
 from models import ChatMessage as ChatMessageModel  # noqa: F401 — register ORM mapper
 from models import APIKey as APIKeyModel
@@ -43,47 +51,156 @@ from models import BinanceWs as BinanceWsModel
 from models import ChatSession as ChatSessionModel
 from models import PairInventory as PairInventoryModel  # noqa: F401
 from models import Trade as TradeModel
+from models import User as UserModel
 from schemas import ChatSendRequest
 from schemas import (
+    AuthActivateRequest,
+    AuthEmailRequest,
+    AuthLoginRequest,
+    AuthTokenResponse,
+    CheckEmailResponse,
     ExchangeCredentialsUpsertRequest,
     ExchangeSyncTradesRequest,
     TradeCreate,
     TradeUpdate,
     Trade as TradeSchema,
+    UserPublic,
 )
 from security import encrypt_data
 
 
-app = FastAPI(title="Cryptelix API", version="1.0.0")
+logger = logging.getLogger("cryptelix")
+
+ENVIRONMENT = (os.getenv("ENVIRONMENT") or "development").strip().lower()
+IS_PRODUCTION = ENVIRONMENT in {"production", "prod"}
+
+# C2: brute-force / abuse protection on sensitive endpoints, keyed by client IP.
+limiter = Limiter(key_func=get_remote_address)
+
+# H5: do not expose the interactive API docs / OpenAI schema in production.
+app = FastAPI(
+    title="Cryptelix API",
+    version="1.0.0",
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
+)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 _CONNECT_JOBS: Dict[str, Dict[str, Any]] = {}
 
-
-@app.on_event("startup")
-def _apply_schema_patches() -> None:
-    try:
-        ensure_balance_spot_constraints()
-    except Exception as exc:
-        print(f"[WARN] Schema patch skipped: {exc}")
+_CONNECT_JOB_PUBLIC_ERROR = "Binance connect failed. Please try again later."
+_CONNECT_JOB_WS_ERROR = (
+    "Live sync could not be started. Your imported data may still be complete."
+)
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+# H5: baseline security headers on every response.
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    if IS_PRODUCTION:
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=63072000; includeSubDomains",
+        )
+    return response
+
+
+def _parse_cors_origins() -> tuple[list[str], str | None]:
+    """H4: CORS origins come from the environment.
+
+    In production set CORS_ALLOWED_ORIGINS (comma-separated) to the exact
+    frontend origin(s). In development we fall back to localhost dev servers.
+    """
+    raw = (os.getenv("CORS_ALLOWED_ORIGINS") or "").strip()
+    if raw:
+        origins = [o.strip().rstrip("/") for o in raw.split(",") if o.strip()]
+        return origins, None
+    dev_origins = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:4173",
         "http://127.0.0.1:4173",
-        "http://100.114.17.18:5173",
-        "http://100.114.17.18:8000",
-    ],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    ]
+    dev_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    return dev_origins, dev_regex
+
+
+def _internal_error(exc: Exception) -> HTTPException:
+    """Log the full error server-side, return a generic message to the client.
+
+    Avoids leaking DB schema, stack traces, or internal details (H2).
+    """
+    logger.exception("Internal server error: %s", type(exc).__name__)
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Internal server error",
+    )
+
+
+@app.on_event("startup")
+def _apply_schema_patches() -> None:
+    try:
+        ensure_balance_spot_constraints()
+        ensure_multi_user_constraints()
+    except Exception as exc:
+        print(f"[WARN] Schema patch skipped: {exc}")
+
+
+_CORS_ORIGINS, _CORS_ORIGIN_REGEX = _parse_cors_origins()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
+    allow_origin_regex=_CORS_ORIGIN_REGEX,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
     expose_headers=["Content-Disposition"],
 )
+
+
+@app.post("/api/v1/auth/check-email", response_model=CheckEmailResponse)
+@limiter.limit("20/minute")
+def post_auth_check_email(
+    request: Request, body: AuthEmailRequest, db: Session = Depends(get_db)
+):
+    return check_email_status(db, body.email)
+
+
+@app.post("/api/v1/auth/activate", response_model=AuthTokenResponse)
+@limiter.limit("10/minute")
+def post_auth_activate(
+    request: Request, body: AuthActivateRequest, db: Session = Depends(get_db)
+):
+    return activate_user(db, body.email, body.password, body.invite_code)
+
+
+@app.post("/api/v1/auth/login", response_model=AuthTokenResponse)
+@limiter.limit("10/minute")
+def post_auth_login(
+    request: Request, body: AuthLoginRequest, db: Session = Depends(get_db)
+):
+    return login_user(db, body.email, body.password)
+
+
+@app.get("/api/v1/auth/me", response_model=UserPublic)
+def get_auth_me(current_user: UserModel = Depends(get_current_user)):
+    return user_to_public(current_user)
+
+
+@app.post("/api/v1/auth/logout")
+def post_auth_logout(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Server-side logout: revoke all sessions for the current user (H1)."""
+    return logout_user(db, current_user)
 
 
 def _summary_to_dict(summary) -> Dict[str, Any]:
@@ -107,14 +224,17 @@ def _summary_to_dict(summary) -> Dict[str, Any]:
 async def get_financial_summary(
     start_date: datetime | None = None,
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Return the user's financial summary as JSON.
     """
     try:
-        summary = get_user_financial_summary(db=db, start_date=start_date)
+        summary = get_user_financial_summary(
+            db=db, user_id=current_user.id, start_date=start_date
+        )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise _internal_error(exc) from exc
 
     return _summary_to_dict(summary)
 
@@ -133,6 +253,7 @@ async def get_profit_trend(
         description="trades: one point per trade; days/weeks/months: DATE_TRUNC buckets, cumulative.",
     ),
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Cumulative PnL from trades (pnl - commission), ordered in time.
@@ -140,10 +261,8 @@ async def get_profit_trend(
     - period=trades: one row per trade, running cumulative balance.
     - period=days|weeks|months: SQL DATE_TRUNC groups, net PnL per bucket,
       then cumulative balance across buckets (still includes all prior periods).
-
-    TODO: MULTI-USER-MIGRATION — currently fixed to user_id = 1.
     """
-    user_id = 1  # TODO: MULTI-USER-MIGRATION
+    user_id = current_user.id
     allowed = frozenset({"trades", "days", "weeks", "months"})
     if period not in allowed:
         raise HTTPException(
@@ -160,7 +279,7 @@ async def get_profit_trend(
                 .all()
             )
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise _internal_error(exc) from exc
 
         cumulative_balance = 0.0
         out: List[Dict[str, Any]] = []
@@ -193,7 +312,7 @@ async def get_profit_trend(
         result = db.execute(sql, {"user_id": user_id})
         grouped = result.mappings().all()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise _internal_error(exc) from exc
 
     cumulative_balance = 0.0
     out: List[Dict[str, Any]] = []
@@ -281,27 +400,48 @@ def _normalize_account_type(value: str | None) -> str:
     return account_type
 
 
+def _get_connect_job_for_user(job_id: str, user_id: int) -> Dict[str, Any]:
+    job = _CONNECT_JOBS.get(job_id)
+    if job is None or job.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Connect job not found")
+    return job
+
+
 @app.post("/api/v1/exchanges/credentials")
 async def upsert_exchange_credentials(
     payload: ExchangeCredentialsUpsertRequest,
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
     exchange_name = _normalize_exchange_name(payload.exchange_name)
-    encrypted_key = encrypt_data(payload.api_key.strip())
-    encrypted_secret = encrypt_data(payload.api_secret.strip())
+
+    api_key_value = payload.api_key.strip()
+    api_secret_value = payload.api_secret.strip()
+
+    # C3: reject keys that can trade or withdraw before storing anything.
+    try:
+        await assert_binance_key_is_read_only(api_key_value, api_secret_value)
+    except ApiKeyPermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    encrypted_key = encrypt_data(api_key_value)
+    encrypted_secret = encrypt_data(api_secret_value)
 
     try:
         row: APIKeyModel | None = (
             db.query(APIKeyModel)
             .filter(
-                APIKeyModel.user_id == DEFAULT_USER_ID,
+                APIKeyModel.user_id == current_user.id,
                 APIKeyModel.exchange_name == exchange_name,
             )
             .first()
         )
         if row is None:
             row = APIKeyModel(
-                user_id=DEFAULT_USER_ID,
+                user_id=current_user.id,
                 exchange_name=exchange_name,
                 api_key_encrypted=encrypted_key,
                 api_secret_encrypted=encrypted_secret,
@@ -317,10 +457,11 @@ async def upsert_exchange_credentials(
         db.commit()
     except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise _internal_error(exc) from exc
 
     job_id = str(uuid4())
     _CONNECT_JOBS[job_id] = {
+        "user_id": current_user.id,
         "status": "queued",
         "phase": "queued",
         "exchange_name": exchange_name,
@@ -340,10 +481,13 @@ async def upsert_exchange_credentials(
 
 
 @app.get("/api/v1/exchanges/credentials/status")
-async def get_exchange_credentials_status(db: Session = Depends(get_db)):
+async def get_exchange_credentials_status(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     rows: list[APIKeyModel] = (
         db.query(APIKeyModel)
-        .filter(APIKeyModel.user_id == DEFAULT_USER_ID)
+        .filter(APIKeyModel.user_id == current_user.id)
         .all()
     )
     connected = {str(row.exchange_name).strip().lower() for row in rows if row.exchange_name}
@@ -357,12 +501,13 @@ async def get_exchange_credentials_status(db: Session = Depends(get_db)):
 async def delete_exchange_credentials(
     exchange_name: str,
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
     normalized = _normalize_exchange_name(exchange_name)
     row: APIKeyModel | None = (
         db.query(APIKeyModel)
         .filter(
-            APIKeyModel.user_id == DEFAULT_USER_ID,
+            APIKeyModel.user_id == current_user.id,
             APIKeyModel.exchange_name == normalized,
         )
         .first()
@@ -374,16 +519,16 @@ async def delete_exchange_credentials(
         )
 
     try:
-        await stop_binance_ws(DEFAULT_USER_ID, "spot")
+        await stop_binance_ws(current_user.id, "spot")
         db.query(BinanceWsModel).filter(
-            BinanceWsModel.user_id == DEFAULT_USER_ID,
+            BinanceWsModel.user_id == current_user.id,
             BinanceWsModel.account_type == "spot",
         ).delete()
         db.delete(row)
         db.commit()
     except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise _internal_error(exc) from exc
 
     return {
         "status": "ok",
@@ -394,11 +539,12 @@ async def delete_exchange_credentials(
 @app.post("/api/v1/exchanges/binance/connect")
 async def start_binance_connect(
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
     cred_exists = (
         db.query(APIKeyModel)
         .filter(
-            APIKeyModel.user_id == DEFAULT_USER_ID,
+            APIKeyModel.user_id == current_user.id,
             APIKeyModel.exchange_name == "binance",
         )
         .first()
@@ -411,6 +557,7 @@ async def start_binance_connect(
 
     job_id = str(uuid4())
     _CONNECT_JOBS[job_id] = {
+        "user_id": current_user.id,
         "status": "queued",
         "phase": "queued",
         "exchange_name": "binance",
@@ -429,20 +576,25 @@ async def start_binance_connect(
 
 
 @app.get("/api/v1/exchanges/binance/connect/{job_id}")
-async def get_binance_connect_status(job_id: str):
-    job = _CONNECT_JOBS.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Connect job not found")
-    return job
+async def get_binance_connect_status(
+    job_id: str,
+    current_user: UserModel = Depends(get_current_user),
+):
+    return _get_connect_job_for_user(job_id, current_user.id)
 
 
 @app.get("/api/v1/exchanges/binance/ws-status")
-async def get_binance_ws_status():
-    return get_ws_status(DEFAULT_USER_ID, "spot")
+async def get_binance_ws_status(
+    current_user: UserModel = Depends(get_current_user),
+):
+    return get_ws_status(current_user.id, "spot")
 
 
 @app.get("/api/v1/exchanges/binance/portfolio")
-async def get_binance_portfolio(db: Session = Depends(get_db)):
+async def get_binance_portfolio(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     """Latest balance snapshots with USDT valuation."""
     subq = (
         db.query(
@@ -450,7 +602,7 @@ async def get_binance_portfolio(db: Session = Depends(get_db)):
             func.max(BalanceSpotTransactionModel.executed_at).label("max_at"),
         )
         .filter(
-            BalanceSpotTransactionModel.user_id == DEFAULT_USER_ID,
+            BalanceSpotTransactionModel.user_id == current_user.id,
             BalanceSpotTransactionModel.type == "BALANCE_SNAPSHOT",
         )
         .group_by(BalanceSpotTransactionModel.asset)
@@ -465,7 +617,7 @@ async def get_binance_portfolio(db: Session = Depends(get_db)):
             & (BalanceSpotTransactionModel.executed_at == subq.c.max_at),
         )
         .filter(
-            BalanceSpotTransactionModel.user_id == DEFAULT_USER_ID,
+            BalanceSpotTransactionModel.user_id == current_user.id,
             BalanceSpotTransactionModel.type == "BALANCE_SNAPSHOT",
         )
         .all()
@@ -494,7 +646,7 @@ async def get_binance_portfolio(db: Session = Depends(get_db)):
         "account_type": "spot",
         "total_usdt": round(total_usdt, 2),
         "assets": sorted(assets, key=lambda a: a["value_usdt"], reverse=True),
-        "ws": get_ws_status(DEFAULT_USER_ID, "spot"),
+        "ws": get_ws_status(current_user.id, "spot"),
     }
 
 
@@ -505,10 +657,13 @@ async def _run_binance_connect_job(job_id: str, account_type: str) -> None:
         if data.get("status") == "running":
             _CONNECT_JOBS[job_id]["status"] = "running"
 
+    job = _CONNECT_JOBS.get(job_id) or {}
+    user_id = int(job.get("user_id") or 0)
+
     try:
         _CONNECT_JOBS[job_id]["status"] = "running"
         result = await run_binance_connect_pipeline(
-            user_id=DEFAULT_USER_ID,
+            user_id=user_id,
             account_type=account_type,
             on_phase=on_phase,
         )
@@ -522,17 +677,18 @@ async def _run_binance_connect_job(job_id: str, account_type: str) -> None:
             "finished_at": datetime.utcnow().isoformat() + "Z",
         }
         if result.get("ws_error"):
-            job_update["ws_error"] = result["ws_error"]
+            job_update["ws_error"] = _CONNECT_JOB_WS_ERROR
             job_update["ws_status"] = "failed"
         else:
             job_update["ws_status"] = "connected"
         _CONNECT_JOBS[job_id].update(job_update)
     except Exception as exc:
+        logger.exception("Binance connect job %s failed", job_id)
         _CONNECT_JOBS[job_id].update(
             {
                 "status": "failed",
                 "phase": "failed",
-                "error": str(exc),
+                "error": _CONNECT_JOB_PUBLIC_ERROR,
                 "finished_at": datetime.utcnow().isoformat() + "Z",
             }
         )
@@ -542,23 +698,27 @@ async def _run_binance_connect_job(job_id: str, account_type: str) -> None:
 async def sync_binance_trades(
     payload: ExchangeSyncTradesRequest,
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """Legacy alias — runs full connect pipeline (balance + backfill + WAC + WS)."""
     _normalize_account_type(payload.account_type)
-    return await start_binance_connect(db)
+    return await start_binance_connect(db=db, current_user=current_user)
 
 
 @app.get("/api/v1/exchanges/binance/sync-trades/{job_id}")
-async def get_binance_sync_status(job_id: str):
+async def get_binance_sync_status(
+    job_id: str,
+    current_user: UserModel = Depends(get_current_user),
+):
     """Legacy alias for connect job status."""
-    job = _CONNECT_JOBS.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Sync job not found")
-    return job
+    return _get_connect_job_for_user(job_id, current_user.id)
 
 
 @app.get("/api/v1/trades")
-async def get_trades(db: Session = Depends(get_db)):
+async def get_trades(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     """
     Return all trades as a list of objects with date, pair, type, entry, exit, quantity, pnl, commission.
     """
@@ -566,13 +726,13 @@ async def get_trades(db: Session = Depends(get_db)):
         trades: List[TradeModel] = (
             db.query(TradeModel)
             .filter(
-                TradeModel.user_id == DEFAULT_USER_ID  # TODO: MULTI-USER-MIGRATION
+                TradeModel.user_id == current_user.id
             )
             .order_by(TradeModel.date.desc())
             .all()
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise _internal_error(exc) from exc
 
     visible = [t for t in trades if not _is_legacy_raw_fill_row(t)]
     return [_trade_to_dict(t) for t in visible]
@@ -589,11 +749,11 @@ async def get_trades_wvl(
         description="Week end (Sunday), YYYY-MM-DD",
     ),
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Wins vs Losses: trade counts per calendar day (Mon–Sun window).
     Win = pnl > 0, Loss = pnl < 0 (pnl == 0 or null excluded).
-    user_id = 1 (TODO: MULTI-USER-MIGRATION).
     """
     if end_date < start_date:
         raise HTTPException(
@@ -614,14 +774,14 @@ async def get_trades_wvl(
         rows: List[TradeModel] = (
             db.query(TradeModel)
             .filter(
-                TradeModel.user_id == DEFAULT_USER_ID,
+                TradeModel.user_id == current_user.id,
                 TradeModel.date >= start_dt,
                 TradeModel.date < end_exclusive,
             )
             .all()
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise _internal_error(exc) from exc
 
     counts: dict[date_type, dict[str, int]] = defaultdict(lambda: {"wins": 0, "losses": 0})
     for t in rows:
@@ -670,20 +830,22 @@ def _trade_float(value: Any) -> float:
 
 
 @app.get("/api/v1/trades/stats")
-async def get_trades_stats(db: Session = Depends(get_db)):
+async def get_trades_stats(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     """
     Key Metrics / Stats for dashboard: TNP, profit factor, trade counts, max drawdown, etc.
-    Filtered to DEFAULT_USER_ID (TODO: MULTI-USER-MIGRATION).
     """
     try:
         rows: List[TradeModel] = (
             db.query(TradeModel)
-            .filter(TradeModel.user_id == DEFAULT_USER_ID)
+            .filter(TradeModel.user_id == current_user.id)
             .order_by(TradeModel.date.asc())
             .all()
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise _internal_error(exc) from exc
 
     total_trades = len(rows)
     sum_pnl = 0.0
@@ -745,20 +907,23 @@ async def get_trades_stats(db: Session = Depends(get_db)):
 
 
 @app.get("/api/v1/trades/ftr-report")
-async def get_trades_ftr_report(db: Session = Depends(get_db)):
+async def get_trades_ftr_report(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     """
-    Full Trading Report: extended metrics for the FTR widget (user_id = DEFAULT_USER_ID).
+    Full Trading Report: extended metrics for the FTR widget.
     MFE/MAE use entry vs exit as a proxy when intraday extremes are not stored.
     """
     try:
         rows: List[TradeModel] = (
             db.query(TradeModel)
-            .filter(TradeModel.user_id == DEFAULT_USER_ID)
+            .filter(TradeModel.user_id == current_user.id)
             .order_by(TradeModel.date.asc())
             .all()
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise _internal_error(exc) from exc
 
     total_trades = len(rows)
     sum_pnl = 0.0
@@ -937,16 +1102,15 @@ async def get_trades_ftr_report(db: Session = Depends(get_db)):
 
 
 @app.post("/api/v1/trades", response_model=TradeSchema, status_code=status.HTTP_201_CREATED)
-async def create_trade(request: Request, db: Session = Depends(get_db)):
+async def create_trade(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     """
     Create a new trade record in the database and return it.
     """
     body_bytes = await request.body()
-    try:
-        print("[POST /api/v1/trades] incoming json:", json.loads(body_bytes.decode()))
-    except Exception as exc:
-        print("[POST /api/v1/trades] could not log json body:", exc)
-
     trade_in = TradeCreate.model_validate_json(body_bytes)
 
     try:
@@ -954,27 +1118,31 @@ async def create_trade(request: Request, db: Session = Depends(get_db)):
         trade = TradeModel(
             **trade_in.model_dump(),
             is_manual=True,
-            user_id=DEFAULT_USER_ID,  # TODO: MULTI-USER-MIGRATION
+            user_id=current_user.id,
         )
         db.add(trade)
         db.commit()
         db.refresh(trade)
     except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise _internal_error(exc) from exc
 
     return trade
 
 
 @app.delete("/api/v1/trades/{trade_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_trade(trade_id: UUID, db: Session = Depends(get_db)):
+async def delete_trade(
+    trade_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     """
     Delete a trade by ID if it is marked as manual.
     """
     trade: TradeModel | None = db.get(TradeModel, trade_id)
     if trade is None:
         raise HTTPException(status_code=404, detail="Trade not found")
-    if trade.user_id != DEFAULT_USER_ID:  # TODO: MULTI-USER-MIGRATION
+    if trade.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Trade not found")
 
     if not trade.is_manual:
@@ -987,26 +1155,26 @@ async def delete_trade(trade_id: UUID, db: Session = Depends(get_db)):
         db.commit()
     except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise _internal_error(exc) from exc
 
 
 @app.patch("/api/v1/trades/{trade_id}", response_model=TradeSchema)
-async def update_trade(trade_id: UUID, request: Request, db: Session = Depends(get_db)):
+async def update_trade(
+    trade_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     """
     Partial update of trade fields (notes, prices, quantities, custom_fields, etc.).
     """
     body_bytes = await request.body()
-    try:
-        print(f"[PATCH /api/v1/trades/{trade_id}] incoming json:", json.loads(body_bytes.decode()))
-    except Exception as exc:
-        print(f"[PATCH /api/v1/trades/{trade_id}] could not log json body:", exc)
-
     trade_in = TradeUpdate.model_validate_json(body_bytes)
 
     trade: TradeModel | None = db.get(TradeModel, trade_id)
     if trade is None:
         raise HTTPException(status_code=404, detail="Trade not found")
-    if trade.user_id != DEFAULT_USER_ID:  # TODO: MULTI-USER-MIGRATION
+    if trade.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Trade not found")
 
     update_data = trade_in.model_dump(exclude_unset=True)
@@ -1035,28 +1203,33 @@ async def update_trade(trade_id: UUID, request: Request, db: Session = Depends(g
         db.refresh(trade)
     except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise _internal_error(exc) from exc
 
     return trade
 
 
 @app.post("/api/v1/trades/{trade_id}/analyze")
-async def analyze_trade_endpoint(trade_id: UUID, db: Session = Depends(get_db)):
+async def analyze_trade_endpoint(
+    trade_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     """
     Run GPT-4o-mini analysis for a trade and persist the result in ai_report.
     """
     trade: TradeModel | None = db.get(TradeModel, trade_id)
     if trade is None:
         raise HTTPException(status_code=404, detail="Trade not found")
-    if trade.user_id != DEFAULT_USER_ID:  # TODO: MULTI-USER-MIGRATION
+    if trade.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Trade not found")
 
     try:
         report = await run_in_threadpool(analyze_trade_sync, trade)
     except AIAnalysisError as exc:
+        logger.exception("AI analysis failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
+            detail="AI analysis is temporarily unavailable. Please try again later.",
         ) from exc
 
     trade.ai_report = report
@@ -1066,7 +1239,7 @@ async def analyze_trade_endpoint(trade_id: UUID, db: Session = Depends(get_db)):
         db.refresh(trade)
     except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise _internal_error(exc) from exc
 
     return {
         "id": str(trade.id),
@@ -1075,37 +1248,40 @@ async def analyze_trade_endpoint(trade_id: UUID, db: Session = Depends(get_db)):
 
 
 @app.get("/api/v1/chat/sessions")
-def list_chat_sessions(db: Session = Depends(get_db)):
-    """Sidebar: chat history for DEFAULT_USER_ID (TODO: MULTI-USER-MIGRATION)."""
+def list_chat_sessions(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Sidebar: chat history for the authenticated user."""
     try:
-        return chat_svc.list_sessions(db, DEFAULT_USER_ID)
+        return chat_svc.list_sessions(db, current_user.id)
     except Exception as exc:
-        print("[chat/sessions] DB error:", repr(exc), flush=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"chat_sessions query failed: {exc!s}",
-        ) from exc
+        raise _internal_error(exc) from exc
 
 
 @app.get("/api/v1/chat/sessions/{session_id}/messages")
-def list_chat_session_messages(session_id: UUID, db: Session = Depends(get_db)):
+def list_chat_session_messages(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     try:
         session: ChatSessionModel | None = db.get(ChatSessionModel, session_id)
-        if session is None or session.user_id != DEFAULT_USER_ID:
+        if session is None or session.user_id != current_user.id:
             raise HTTPException(status_code=404, detail="Session not found")
         return chat_svc.list_session_messages(db, session_id)
     except HTTPException:
         raise
     except Exception as exc:
-        print("[chat/messages] DB error:", repr(exc), flush=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"chat_messages query failed: {exc!s}",
-        ) from exc
+        raise _internal_error(exc) from exc
 
 
 @app.post("/api/v1/chat/send")
-def post_chat_send(body: ChatSendRequest, db: Session = Depends(get_db)):
+def post_chat_send(
+    body: ChatSendRequest,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     print(
         "[chat/send] start session_id=",
         body.session_id,
@@ -1116,7 +1292,7 @@ def post_chat_send(body: ChatSendRequest, db: Session = Depends(get_db)):
     try:
         result = chat_svc.send_chat(
             db,
-            DEFAULT_USER_ID,
+            current_user.id,
             body.session_id,
             body.message,
         )
@@ -1124,7 +1300,6 @@ def post_chat_send(body: ChatSendRequest, db: Session = Depends(get_db)):
         return result
     except chat_svc.ChatServiceError as exc:
         detail = str(exc)
-        print("[chat/send] ChatServiceError:", detail, flush=True)
         if detail == "Empty message":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1135,16 +1310,13 @@ def post_chat_send(body: ChatSendRequest, db: Session = Depends(get_db)):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=detail,
             ) from exc
+        logger.exception("Chat service error")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=detail,
+            detail="The assistant is temporarily unavailable. Please try again later.",
         ) from exc
     except Exception as exc:
-        print("[chat/send] UNEXPECTED:", repr(exc), flush=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"chat send failed: {exc!s}",
-        ) from exc
+        raise _internal_error(exc) from exc
 
 
 def get_db_sync():
@@ -1161,7 +1333,10 @@ def get_db_sync():
 
 
 @app.get("/api/v1/trades/export")
-async def export_trades(db: Session = Depends(get_db)):
+async def export_trades(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     """
     Export all trades to an Excel file.
     """
@@ -1169,13 +1344,13 @@ async def export_trades(db: Session = Depends(get_db)):
         trades: List[TradeModel] = (
             db.query(TradeModel)
             .filter(
-                TradeModel.user_id == DEFAULT_USER_ID  # TODO: MULTI-USER-MIGRATION
+                TradeModel.user_id == current_user.id
             )
             .order_by(TradeModel.date.desc())
             .all()
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise _internal_error(exc) from exc
 
     if not trades:
         raise HTTPException(

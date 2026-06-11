@@ -45,8 +45,6 @@ SessionLocal = sessionmaker(
 # Declarative base for ORM models
 Base = declarative_base()
 
-DEFAULT_USER_ID = 1  # TODO: MULTI-USER-MIGRATION
-
 
 def get_db():
     """

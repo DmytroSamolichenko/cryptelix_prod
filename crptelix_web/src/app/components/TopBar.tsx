@@ -6,6 +6,7 @@ import { ConnectBrokerModal } from './modals/ConnectBrokerModal';
 import { ConnectTradingViewModal } from './modals/ConnectTradingViewModal';
 import { UserProfileModal } from './UserProfileModal';
 import { motion, AnimatePresence } from 'motion/react';
+import { apiFetch } from '../lib/apiClient';
 
 interface TopBarProps {
   userEmail: string;
@@ -45,7 +46,7 @@ export function TopBar({
 
   const refreshConnectionStatus = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/v1/exchanges/credentials/status');
+      const res = await apiFetch('/api/v1/exchanges/credentials/status');
       if (!res.ok) return;
       const payload = (await res.json()) as {
         connected_exchanges?: string[];

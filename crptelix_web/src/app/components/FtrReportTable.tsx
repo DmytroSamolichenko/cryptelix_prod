@@ -1,7 +1,7 @@
 import { TrendingUp, TrendingDown, ExternalLink } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-const FTR_API = 'http://localhost:8000/api/v1/trades/ftr-report';
+import { apiFetch } from '../lib/apiClient';
 
 export interface FtrReportPayload {
   total_profit_gross_minus_loss: number;
@@ -267,7 +267,7 @@ export function FtrReportTable({ onExtractMetric }: FtrReportTableProps) {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch(FTR_API);
+        const res = await apiFetch('/api/v1/trades/ftr-report');
         if (!res.ok) {
           setRows([]);
           return;

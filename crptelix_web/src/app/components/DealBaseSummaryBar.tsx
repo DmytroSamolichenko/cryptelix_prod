@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { cn } from './ui/utils';
 import type { FtrReportPayload } from './FtrReportTable';
 
-const FTR_API = 'http://localhost:8000/api/v1/trades/ftr-report';
+import { apiFetch } from '../lib/apiClient';
 
 interface DealRow {
   entryPrice?: string;
@@ -89,7 +89,7 @@ export function DealBaseSummaryBar({ deals }: DealBaseSummaryBarProps) {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch(FTR_API);
+        const res = await apiFetch('/api/v1/trades/ftr-report');
         if (!res.ok) return;
         setFtr((await res.json()) as FtrReportPayload);
       } catch {

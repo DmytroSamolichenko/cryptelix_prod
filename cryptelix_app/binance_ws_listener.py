@@ -14,7 +14,7 @@ from typing import Optional
 import websockets
 from sqlalchemy.orm import Session
 
-from database import DEFAULT_USER_ID, SessionLocal
+from database import SessionLocal
 from models import APIKey, BinanceWs, BalanceSpotTransaction
 from security import decrypt_data
 from spot_sync_service import insert_fill_from_ccxt

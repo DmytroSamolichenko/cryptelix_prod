@@ -1,7 +1,7 @@
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-const STATS_API = 'http://localhost:8000/api/v1/trades/stats';
+import { apiFetch } from '../lib/apiClient';
 
 interface TradesStatsPayload {
   total_net_profit: number;
@@ -38,7 +38,7 @@ export function KeyMetricsCards() {
     const load = async () => {
       setLoading(true);
       try {
-        const res = await fetch(STATS_API);
+        const res = await apiFetch('/api/v1/trades/stats');
         if (!res.ok) {
           console.error('Failed to fetch /api/v1/trades/stats', res.status);
           setStats(null);

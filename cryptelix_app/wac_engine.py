@@ -7,7 +7,6 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from database import DEFAULT_USER_ID
 from models import BalanceSpotTransaction, PairInventory, Trade
 from price_service import (
     DECIMAL_ZERO,
@@ -92,7 +91,10 @@ def _create_journal_trade(
     exchange_trade_id = f"wac-{source_txn.external_id}"
     existing = (
         db.query(Trade)
-        .filter(Trade.exchange_trade_id == exchange_trade_id)
+        .filter(
+            Trade.user_id == user_id,
+            Trade.exchange_trade_id == exchange_trade_id,
+        )
         .first()
     )
     if existing:
@@ -220,7 +222,7 @@ async def process_fill_transaction(
 async def process_all_unprocessed_fills(
     db: Session,
     client,
-    user_id: int = DEFAULT_USER_ID,
+    user_id: int,
 ) -> dict:
     rows: list[BalanceSpotTransaction] = (
         db.query(BalanceSpotTransaction)

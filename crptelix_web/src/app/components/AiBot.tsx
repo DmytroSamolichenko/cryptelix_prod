@@ -3,8 +3,7 @@ import { Send, Sparkles, Clock, MessageSquare, Plus, Loader2 } from 'lucide-reac
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ChatMessageMarkdown } from './ChatMessageMarkdown';
-
-const API_BASE = 'http://localhost:8000';
+import { apiFetch } from '../lib/apiClient';
 
 interface Message {
   id: string;
@@ -65,7 +64,7 @@ export function AiBot() {
   const fetchSessions = useCallback(async () => {
     setLoadingSessions(true);
     try {
-      const res = await fetch(`${API_BASE}/api/v1/chat/sessions`);
+      const res = await apiFetch('/api/v1/chat/sessions');
       if (!res.ok) throw new Error(await res.text());
       const data = (await res.json()) as ChatSessionRow[];
       setSessions(Array.isArray(data) ? data : []);
@@ -80,8 +79,8 @@ export function AiBot() {
     setLoadingMessages(true);
     setSendError(null);
     try {
-      const res = await fetch(
-        `${API_BASE}/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages`
+      const res = await apiFetch(
+        `/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages`
       );
       if (!res.ok) throw new Error(await res.text());
       const data = (await res.json()) as Array<{
@@ -136,7 +135,7 @@ export function AiBot() {
     setMessages((prev) => [...prev, optimisticUser]);
 
     try {
-      const res = await fetch(`${API_BASE}/api/v1/chat/send`, {
+      const res = await apiFetch('/api/v1/chat/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

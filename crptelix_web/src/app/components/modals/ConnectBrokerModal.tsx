@@ -1,6 +1,7 @@
 import { X, TrendingUp, Shield, BarChart3, ExternalLink, Lock, CheckCircle2, Unplug } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { cn } from '../ui/utils';
+import { apiFetch } from '../../lib/apiClient';
 
 interface ConnectBrokerModalProps {
   isOpen: boolean;
@@ -99,7 +100,6 @@ function BrokerLogo({
 }
 
 export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBrokerModalProps) {
-  const API_BASE = 'http://localhost:8000';
   const [selectedBroker, setSelectedBroker] = useState<string | null>(null);
   const [credentialsByBroker, setCredentialsByBroker] = useState<
     Record<string, { apiKey: string; apiSecret: string }>
@@ -112,7 +112,7 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
 
   const fetchConnectedExchanges = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/v1/exchanges/credentials/status`);
+      const res = await apiFetch('/api/v1/exchanges/credentials/status');
       if (!res.ok) return;
       const payload = (await res.json()) as { connected_exchanges?: string[] };
       const ids = (payload.connected_exchanges ?? []).map((id) => id.trim().toLowerCase());
@@ -148,7 +148,7 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
     setIsSubmitting(true);
     setStatusMessage('Saving API keys...');
     try {
-      const credentialsRes = await fetch(`${API_BASE}/api/v1/exchanges/credentials`, {
+      const credentialsRes = await apiFetch('/api/v1/exchanges/credentials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -193,8 +193,8 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
     for (let attempt = 0; attempt < 120; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 3000));
       try {
-        const res = await fetch(
-          `${API_BASE}/api/v1/exchanges/binance/connect/${encodeURIComponent(jobId)}`
+        const res = await apiFetch(
+          `/api/v1/exchanges/binance/connect/${encodeURIComponent(jobId)}`
         );
         if (!res.ok) continue;
         const job = await res.json();
@@ -256,8 +256,8 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
     setIsDisconnecting(true);
     setStatusMessage(null);
     try {
-      const res = await fetch(
-        `${API_BASE}/api/v1/exchanges/credentials/${encodeURIComponent(selectedBrokerData.exchangeId)}`,
+      const res = await apiFetch(
+        `/api/v1/exchanges/credentials/${encodeURIComponent(selectedBrokerData.exchangeId)}`,
         { method: 'DELETE' }
       );
       if (!res.ok) {

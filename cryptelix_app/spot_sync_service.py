@@ -6,7 +6,6 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from database import DEFAULT_USER_ID
 from models import BalanceSpotTransaction
 from price_service import DECIMAL_ZERO, ensure_utc, get_asset_usdt_rate
 
@@ -214,7 +213,7 @@ async def backfill_fills_for_symbol(
 async def backfill_all_fills(
     db: Session,
     client,
-    user_id: int = DEFAULT_USER_ID,
+    user_id: int,
     exchange_name: str = "binance",
 ) -> dict:
     balance = await client.fetch_balance()

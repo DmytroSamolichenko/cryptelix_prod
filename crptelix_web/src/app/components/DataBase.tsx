@@ -11,6 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import { apiFetch } from '../lib/apiClient';
 
 type ColumnType = 'text' | 'number' | 'percentage';
 
@@ -35,9 +36,6 @@ interface CustomColumnConfig {
   name: string;
   type: ColumnType;
 }
-
-/** TODO: MULTI-USER-MIGRATION — sent on every write; backend ignores and uses DEFAULT_USER_ID */
-const DEAL_BASE_USER_ID = 1;
 
 function isPersistedTradeId(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
@@ -110,7 +108,7 @@ function buildPatchBodyForColumn(
   customColumns: CustomColumnConfig[],
   fieldValueOverride?: string
 ): Record<string, unknown> | null {
-  const base: Record<string, unknown> = { user_id: DEAL_BASE_USER_ID };
+  const base: Record<string, unknown> = {};
 
   if (customColumns.some((c) => c.name === columnId)) {
     const cf: Record<string, unknown> = {};
@@ -361,7 +359,7 @@ export function DataBase() {
     if (!sheet.deals.length || exporting) return;
     setExporting(true);
     try {
-      const res = await fetch('http://localhost:8000/api/v1/trades/export');
+      const res = await apiFetch('/api/v1/trades/export');
       if (!res.ok) {
         const text = await res.text();
         console.error('Failed to export trades', res.status, res.statusText, text);
@@ -393,8 +391,8 @@ export function DataBase() {
     setAiAnalyzeError((prev) => ({ ...prev, [dealId]: false }));
     setAiAnalyzeBusy((prev) => ({ ...prev, [dealId]: true }));
     try {
-      const res = await fetch(
-        `http://localhost:8000/api/v1/trades/${encodeURIComponent(dealId)}/analyze`,
+      const res = await apiFetch(
+        `/api/v1/trades/${encodeURIComponent(dealId)}/analyze`,
         { method: 'POST' }
       );
       if (!res.ok) {
@@ -419,7 +417,7 @@ export function DataBase() {
 
   const fetchTrades = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/v1/trades');
+      const res = await apiFetch('/api/v1/trades');
       if (!res.ok) return;
       const data: ApiTrade[] = await res.json();
       if (!Array.isArray(data)) return;
@@ -524,10 +522,8 @@ export function DataBase() {
       if (isCellLocked(nextDeal, columnId)) return;
       const raw = buildPatchBodyForColumn(nextDeal, columnId, customColumns, fieldValueOverride);
       if (!raw) return;
-      const userId = raw.user_id;
-      const { user_id: _drop, ...rest } = raw;
-      const entries: [string, unknown][] = [['user_id', userId]];
-      for (const [k, v] of Object.entries(rest)) {
+      const entries: [string, unknown][] = [];
+      for (const [k, v] of Object.entries(raw)) {
         if (k === 'notes') {
           entries.push([k, v]);
           continue;
@@ -535,11 +531,11 @@ export function DataBase() {
         if (v === undefined || v === null) continue;
         entries.push([k, v]);
       }
-      if (entries.length <= 1) return;
+      if (entries.length === 0) return;
       const finalBody = Object.fromEntries(entries);
       try {
-        const res = await fetch(
-          `http://localhost:8000/api/v1/trades/${encodeURIComponent(nextDeal.id)}`,
+        const res = await apiFetch(
+          `/api/v1/trades/${encodeURIComponent(nextDeal.id)}`,
           {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -567,15 +563,14 @@ export function DataBase() {
       updateDeal(dealId, notesColumnId, note);
 
       try {
-        const res = await fetch(
-          `http://localhost:8000/api/v1/trades/${encodeURIComponent(dealId)}`,
+        const res = await apiFetch(
+          `/api/v1/trades/${encodeURIComponent(dealId)}`,
           {
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              user_id: DEAL_BASE_USER_ID,
               notes: note === '' ? null : note,
             }),
           }
@@ -600,8 +595,8 @@ export function DataBase() {
     }
 
     try {
-      const res = await fetch(
-        `http://localhost:8000/api/v1/trades/${encodeURIComponent(deal.id)}`,
+      const res = await apiFetch(
+        `/api/v1/trades/${encodeURIComponent(deal.id)}`,
         {
           method: 'DELETE',
         }

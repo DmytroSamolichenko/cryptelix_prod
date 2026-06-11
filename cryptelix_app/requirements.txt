@@ -10,3 +10,6 @@ pydantic
 ccxt
 websockets
 aiohttp
+bcrypt
+PyJWT
+slowapi

@@ -20,7 +20,7 @@ type TrendPoint = {
   negative: number | null;
 };
 
-const API_BASE_URL = 'http://localhost:8000';
+import { apiFetch } from '../lib/apiClient';
 
 const TIME_SCALE_BUTTONS: { key: ProfitTrendTimeScale; label: string }[] = [
   { key: 'trades', label: 'Trades' },
@@ -199,8 +199,8 @@ export function ProfitTrendWidget() {
     const fetchProfitTrend = async () => {
       setLoading(true);
       try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/metrics/profit-trend?period=${encodeURIComponent(period)}`
+        const response = await apiFetch(
+          `/api/metrics/profit-trend?period=${encodeURIComponent(period)}`
         );
         if (!response.ok) throw new Error(`Failed to fetch profit trend: ${response.status}`);
 

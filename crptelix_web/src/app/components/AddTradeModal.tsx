@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { X } from 'lucide-react';
 import { SideToggle } from './SideToggle';
 import { formatNumber } from './ui/utils';
+import { apiFetch } from '../lib/apiClient';
 
 type ColumnType = 'text' | 'number' | 'percentage';
 
@@ -87,7 +88,6 @@ export function AddTradeModal({ onClose, onCreated, customColumns = [] }: AddTra
       const commissionNum = parseNumericForPayload(commission);
 
       const payload = {
-        user_id: 1, // TODO: MULTI-USER-MIGRATION — server assigns user; included for logging / future auth
         is_manual: true,
         date: isoDate,
         pair: normalizedPair,
@@ -103,7 +103,7 @@ export function AddTradeModal({ onClose, onCreated, customColumns = [] }: AddTra
         exchange_name: exchangeName || 'binance',
       };
 
-      const res = await fetch('http://localhost:8000/api/v1/trades', {
+      const res = await apiFetch('/api/v1/trades', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

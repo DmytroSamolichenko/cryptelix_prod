@@ -2,15 +2,29 @@ import { useState, useRef, useEffect, FormEvent } from 'react';
 import { ArrowRight, Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CryptelixLogo } from '../CryptelixLogo';
-import { isValidEmail } from '../../lib/authStorage';
+import { isValidEmail, type AuthSession } from '../../lib/authStorage';
+import { apiFetch } from '../../lib/apiClient';
+
+type AuthStep = 'email' | 'password';
+type AuthMode = 'needs_activation' | 'needs_login';
 
 interface LoginScreenProps {
-  onSuccess: (email: string) => void;
+  onSuccess: (session: AuthSession) => void;
+}
+
+interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  user: { id: number; email: string; username?: string | null };
 }
 
 export function LoginScreen({ onSuccess }: LoginScreenProps) {
+  const [step, setStep] = useState<AuthStep>('email');
+  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -18,29 +32,160 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
 
   useEffect(() => {
     inputRef.current?.focus();
+  }, [step]);
+
+  // Prefill the invite code from the activation link (e.g. ?invite=CODE).
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('invite');
+    if (code) setInviteCode(code.trim());
   }, []);
 
-  const handleSubmit = async (event: FormEvent) => {
+  const resetPasswordFields = () => {
+    setPassword('');
+    setConfirmPassword('');
+    setShowPassword(false);
+  };
+
+  const handleEmailStep = async (event: FormEvent) => {
     event.preventDefault();
     const trimmed = email.trim();
-    const trimmedPassword = password.trim();
 
     if (!isValidEmail(trimmed)) {
       setError('Enter a valid email address.');
       return;
     }
 
+    setError('');
+    setIsSubmitting(true);
+
+    try {
+      const res = await apiFetch('/api/v1/auth/check-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: trimmed }),
+      });
+
+      if (res.status === 404) {
+        setError('This email is not invited.');
+        return;
+      }
+
+      if (res.status === 429) {
+        setError('Too many attempts. Please wait a minute and try again.');
+        return;
+      }
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError((body as { detail?: string }).detail || 'Could not verify email.');
+        return;
+      }
+
+      const data = (await res.json()) as { status: AuthMode; email: string };
+      setAuthMode(data.status);
+      setEmail(data.email);
+      resetPasswordFields();
+      setStep('password');
+    } catch {
+      setError('Network error. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handlePasswordStep = async (event: FormEvent) => {
+    event.preventDefault();
+    const trimmedPassword = password.trim();
+
     if (!trimmedPassword) {
       setError('Enter your password.');
       return;
     }
 
+    if (authMode === 'needs_activation') {
+      if (!inviteCode.trim()) {
+        setError('Enter your invite code.');
+        return;
+      }
+      if (trimmedPassword.length < 8) {
+        setError('Password must be at least 8 characters.');
+        return;
+      }
+      if (trimmedPassword !== confirmPassword.trim()) {
+        setError('Passwords do not match.');
+        return;
+      }
+    }
+
     setError('');
     setIsSubmitting(true);
 
-    await new Promise((resolve) => window.setTimeout(resolve, 320));
-    onSuccess(trimmed);
+    const endpoint =
+      authMode === 'needs_activation' ? '/api/v1/auth/activate' : '/api/v1/auth/login';
+
+    const payload =
+      authMode === 'needs_activation'
+        ? {
+            email: email.trim(),
+            password: trimmedPassword,
+            invite_code: inviteCode.trim(),
+          }
+        : { email: email.trim(), password: trimmedPassword };
+
+    try {
+      const res = await apiFetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.status === 429) {
+        setError('Too many attempts. Please wait a minute and try again.');
+        return;
+      }
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const detail = (body as { detail?: string }).detail;
+        setError(
+          detail ||
+            (authMode === 'needs_activation'
+              ? 'Could not activate account.'
+              : 'Invalid email or password.')
+        );
+        return;
+      }
+
+      const data = (await res.json()) as TokenResponse;
+      onSuccess({
+        accessToken: data.access_token,
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          username: data.user.username ?? null,
+          signedInAt: new Date().toISOString(),
+        },
+      });
+    } catch {
+      setError('Network error. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  const goBackToEmail = () => {
+    setStep('email');
+    setAuthMode(null);
+    resetPasswordFields();
+    setError('');
+  };
+
+  const isActivate = authMode === 'needs_activation';
+  const passwordReady =
+    password.trim().length > 0 &&
+    (isActivate
+      ? confirmPassword.trim().length > 0 && inviteCode.trim().length > 0
+      : true);
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-zinc-950 px-4">
@@ -72,115 +217,187 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
           <div className="mb-6 text-center">
             <h1 className="text-2xl font-bold tracking-tight text-white">Sign in to Cryptelix</h1>
             <p className="mt-2 text-sm text-zinc-400">
-              Enter your email and password to access your AI Environment workspace.
+              {step === 'email'
+                ? 'Enter your invited email to continue.'
+                : isActivate
+                  ? 'Create your password to finish setup.'
+                  : 'Enter your password to sign in.'}
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="login-email" className="mb-1.5 block text-xs font-medium text-zinc-400">
-                Email address
-              </label>
-              <div className="relative">
-                <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                <input
-                  ref={inputRef}
-                  id="login-email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (error) setError('');
-                  }}
-                  disabled={isSubmitting}
-                  className="h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 pl-10 pr-3 text-sm text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/15 disabled:opacity-60"
-                />
+          {step === 'email' ? (
+            <form onSubmit={handleEmailStep} className="space-y-4">
+              <div>
+                <label htmlFor="login-email" className="mb-1.5 block text-xs font-medium text-zinc-400">
+                  Email address
+                </label>
+                <div className="relative">
+                  <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                  <input
+                    ref={inputRef}
+                    id="login-email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (error) setError('');
+                    }}
+                    disabled={isSubmitting}
+                    className="h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 pl-10 pr-3 text-sm text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/15 disabled:opacity-60"
+                  />
+                </div>
               </div>
-            </div>
 
-            <div>
-              <label htmlFor="login-password" className="mb-1.5 block text-xs font-medium text-zinc-400">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                <input
-                  id="login-password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (error) setError('');
-                  }}
-                  disabled={isSubmitting}
-                  className="h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 pl-10 pr-11 text-sm text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/15 disabled:opacity-60"
-                />
+              {error && <p className="text-xs text-red-400">{error}</p>}
+
+              <motion.button
+                type="submit"
+                disabled={isSubmitting || !email.trim()}
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-yellow-500 text-sm font-semibold text-black transition-colors hover:bg-yellow-400 disabled:cursor-not-allowed disabled:opacity-50"
+                whileHover={isSubmitting ? undefined : { scale: 1.01 }}
+                whileTap={isSubmitting ? undefined : { scale: 0.98 }}
+              >
+                {isSubmitting ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-black/20 border-t-black" />
+                    Checking…
+                  </span>
+                ) : (
+                  <>
+                    Continue
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </motion.button>
+            </form>
+          ) : (
+            <form onSubmit={handlePasswordStep} className="space-y-4">
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs text-zinc-400">
+                {email}
                 <button
                   type="button"
-                  onClick={() => setShowPassword((visible) => !visible)}
-                  disabled={isSubmitting}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  aria-pressed={showPassword}
-                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-50"
+                  onClick={goBackToEmail}
+                  className="ml-2 text-yellow-500/90 hover:text-yellow-400"
                 >
-                  <AnimatePresence mode="wait" initial={false}>
-                    {showPassword ? (
-                      <motion.span
-                        key="eye-off"
-                        initial={{ opacity: 0, scale: 0.6, rotate: -12 }}
-                        animate={{ opacity: 1, scale: 1, rotate: 0 }}
-                        exit={{ opacity: 0, scale: 0.6, rotate: 12 }}
-                        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                        className="inline-flex"
-                      >
-                        <EyeOff className="h-4 w-4" />
-                      </motion.span>
-                    ) : (
-                      <motion.span
-                        key="eye"
-                        initial={{ opacity: 0, scale: 0.6, rotate: 12 }}
-                        animate={{ opacity: 1, scale: 1, rotate: 0 }}
-                        exit={{ opacity: 0, scale: 0.6, rotate: -12 }}
-                        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                        className="inline-flex"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
+                  Change
                 </button>
               </div>
-            </div>
 
-            {error && <p className="text-xs text-red-400">{error}</p>}
-
-            <motion.button
-              type="submit"
-              disabled={isSubmitting || !email.trim() || !password.trim()}
-              className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-yellow-500 text-sm font-semibold text-black transition-colors hover:bg-yellow-400 disabled:cursor-not-allowed disabled:opacity-50"
-              whileHover={isSubmitting ? undefined : { scale: 1.01 }}
-              whileTap={isSubmitting ? undefined : { scale: 0.98 }}
-            >
-              {isSubmitting ? (
-                <span className="inline-flex items-center gap-2">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-black/20 border-t-black" />
-                  Continuing…
-                </span>
-              ) : (
-                <>
-                  Continue
-                  <ArrowRight className="h-4 w-4" />
-                </>
+              {isActivate && (
+                <div>
+                  <label htmlFor="login-invite-code" className="mb-1.5 block text-xs font-medium text-zinc-400">
+                    Invite code
+                  </label>
+                  <input
+                    id="login-invite-code"
+                    type="text"
+                    autoComplete="off"
+                    placeholder="Code from your invitation"
+                    value={inviteCode}
+                    onChange={(e) => {
+                      setInviteCode(e.target.value);
+                      if (error) setError('');
+                    }}
+                    disabled={isSubmitting}
+                    className="h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/15 disabled:opacity-60"
+                  />
+                </div>
               )}
-            </motion.button>
-          </form>
+
+              <div>
+                <label htmlFor="login-password" className="mb-1.5 block text-xs font-medium text-zinc-400">
+                  {isActivate ? 'Create password' : 'Password'}
+                </label>
+                <div className="relative">
+                  <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                  <input
+                    ref={inputRef}
+                    id="login-password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete={isActivate ? 'new-password' : 'current-password'}
+                    placeholder={isActivate ? 'At least 8 characters' : 'Enter your password'}
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (error) setError('');
+                    }}
+                    disabled={isSubmitting}
+                    className="h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 pl-10 pr-11 text-sm text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/15 disabled:opacity-60"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((visible) => !visible)}
+                    disabled={isSubmitting}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
+                    className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-50"
+                  >
+                    <AnimatePresence mode="wait" initial={false}>
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </AnimatePresence>
+                  </button>
+                </div>
+              </div>
+
+              {isActivate && (
+                <div>
+                  <label
+                    htmlFor="login-confirm-password"
+                    className="mb-1.5 block text-xs font-medium text-zinc-400"
+                  >
+                    Confirm password
+                  </label>
+                  <div className="relative">
+                    <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                    <input
+                      id="login-confirm-password"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
+                      placeholder="Repeat your password"
+                      value={confirmPassword}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value);
+                        if (error) setError('');
+                      }}
+                      disabled={isSubmitting}
+                      className="h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 pl-10 pr-3 text-sm text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/15 disabled:opacity-60"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {error && <p className="text-xs text-red-400">{error}</p>}
+
+              <motion.button
+                type="submit"
+                disabled={isSubmitting || !passwordReady}
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-yellow-500 text-sm font-semibold text-black transition-colors hover:bg-yellow-400 disabled:cursor-not-allowed disabled:opacity-50"
+                whileHover={isSubmitting ? undefined : { scale: 1.01 }}
+                whileTap={isSubmitting ? undefined : { scale: 0.98 }}
+              >
+                {isSubmitting ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-black/20 border-t-black" />
+                    {isActivate ? 'Activating…' : 'Signing in…'}
+                  </span>
+                ) : (
+                  <>
+                    {isActivate ? 'Activate account' : 'Sign in'}
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </motion.button>
+            </form>
+          )}
 
           <p className="mt-6 text-center text-xs leading-relaxed text-zinc-500">
-          Alpha Test | Release - June 2026 - Limited Access
+            Alpha Test | Release - June 2026 - Limited Access
           </p>
         </div>
       </motion.div>

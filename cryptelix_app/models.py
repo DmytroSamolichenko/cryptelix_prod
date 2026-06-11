@@ -35,12 +35,20 @@ from database import Base, engine
 
 
 class User(Base):
-
     __tablename__ = "users"
 
-
-
     id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), nullable=True)
+    email = Column(String(100), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime, nullable=True)
+    # NULL until the invited user completes first-time activation (set password).
+    password_hash = Column(String(255), nullable=True)
+    # H1: bump to invalidate all of this user's existing access tokens.
+    token_version = Column(Integer, nullable=False, default=0, server_default="0")
+
+    @property
+    def is_activated(self) -> bool:
+        return self.password_hash is not None
 
 
 
@@ -66,7 +74,7 @@ class Trade(Base):
 
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
 
-    exchange_trade_id = Column(String(128), unique=True, index=True, nullable=True)
+    exchange_trade_id = Column(String(128), index=True, nullable=True)
 
     exchange_name = Column(String(50), nullable=True)
 
