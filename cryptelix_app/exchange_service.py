@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, List
@@ -10,6 +11,8 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import Trade, APIKey
 from security import decrypt_data
+
+logger = logging.getLogger("cryptelix")
 
 
 class ApiKeyPermissionError(Exception):
@@ -60,11 +63,19 @@ async def assert_binance_key_is_read_only(api_key: str, api_secret: str) -> None
         try:
             restrictions = await client.sapi_get_account_apirestrictions()
         except ccxt.AuthenticationError as exc:
+            logger.warning("Binance key verification: auth error: %s", exc)
             raise ApiKeyPermissionError(
                 "Invalid Binance API key or secret."
             ) from exc
         except ccxt.BaseError as exc:
             # Fail closed: if we cannot confirm the key is read-only, do not store it.
+            # Logged in full so deployment-specific failures (e.g. Binance
+            # geo-restriction on the host IP) are visible in server logs.
+            logger.warning(
+                "Binance key verification failed (%s): %s",
+                type(exc).__name__,
+                exc,
+            )
             raise ApiKeyPermissionError(
                 "Could not verify the API key permissions with Binance. "
                 "Please try again."
