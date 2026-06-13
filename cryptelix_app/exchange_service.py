@@ -76,11 +76,9 @@ async def assert_binance_key_is_read_only(api_key: str, api_secret: str) -> None
                 type(exc).__name__,
                 exc,
             )
-            # TEMPORARY: surface the real Binance error to the client for
-            # deployment diagnosis. Revert to a generic message afterwards.
             raise ApiKeyPermissionError(
                 "Could not verify the API key permissions with Binance. "
-                f"[debug {type(exc).__name__}: {exc}]"
+                "Please try again."
             ) from exc
 
         if not _flag_is_true(restrictions.get("enableReading")):

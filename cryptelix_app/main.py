@@ -682,7 +682,7 @@ async def _run_binance_connect_job(job_id: str, account_type: str) -> None:
         else:
             job_update["ws_status"] = "connected"
         _CONNECT_JOBS[job_id].update(job_update)
-    except Exception as exc:
+    except Exception:
         logger.exception("Binance connect job %s failed", job_id)
         _CONNECT_JOBS[job_id].update(
             {

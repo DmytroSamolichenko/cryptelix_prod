@@ -18,6 +18,16 @@ def ensure_balance_spot_constraints() -> None:
                 "DROP CONSTRAINT IF EXISTS balance_transactions_type_check"
             )
         )
+        # Legacy single-user constraint: external_id was globally unique.
+        # In multi-user mode the same Binance trade id can appear for
+        # different users, so per-user uniqueness (created in
+        # ensure_multi_user_constraints) is what we keep — drop the global one.
+        conn.execute(
+            text(
+                "ALTER TABLE balance_spot_transactions "
+                "DROP CONSTRAINT IF EXISTS balance_transactions_external_id_key"
+            )
+        )
         conn.execute(
             text(
                 """
