@@ -61,6 +61,24 @@ def ensure_multi_user_constraints() -> None:
                 "ALTER TABLE trades DROP CONSTRAINT IF EXISTS trades_exchange_trade_id_key"
             )
         )
+        # Legacy single-user index: exchange_trade_id was globally unique.
+        # In multi-user mode the same exchange_trade_id (e.g. wac-<id>) can
+        # appear for different users, so per-user uniqueness below is what we
+        # keep. Re-create it as a plain (non-unique) lookup index to match the
+        # model's index=True intent and preserve query performance.
+        conn.execute(text("DROP INDEX IF EXISTS ix_trades_exchange_trade_id"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_trades_exchange_trade_id "
+                "ON trades (exchange_trade_id)"
+            )
+        )
+        # Legacy global unique on username breaks multi-user activation when two
+        # invited users share the same display name. The model does not declare
+        # username unique, so drop it.
+        conn.execute(
+            text("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_username_key")
+        )
         conn.execute(
             text(
                 """
