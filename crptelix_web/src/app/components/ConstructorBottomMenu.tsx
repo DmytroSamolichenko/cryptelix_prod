@@ -79,10 +79,10 @@ export function ConstructorBottomMenu({
 
   return (
     <div className="relative z-30 overflow-visible border-t border-zinc-800/50 bg-zinc-950/80 backdrop-blur-md">
-      <div className="flex flex-col gap-2 overflow-visible px-2 py-2 sm:h-[54px] sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:px-3 sm:py-0">
+      <div className="flex flex-col gap-2 overflow-visible px-2 py-2 sm:min-h-[54px] sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:overflow-visible sm:px-3 sm:py-0">
         {/* Tools — top row on mobile, centered on desktop */}
-        <div className="order-1 flex shrink-0 items-center justify-center gap-2 sm:pointer-events-none sm:absolute sm:left-1/2 sm:top-1/2 sm:z-10 sm:-translate-x-1/2 sm:-translate-y-1/2">
-          <div className="pointer-events-auto relative">
+        <div className="order-1 flex shrink-0 items-center justify-center gap-2 sm:absolute sm:left-1/2 sm:top-1/2 sm:z-10 sm:-translate-x-1/2 sm:-translate-y-1/2">
+          <div className="relative">
             <motion.button
               onClick={onWidgetsToggle}
               className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all sm:gap-2 sm:px-4 sm:text-sm ${
@@ -99,8 +99,8 @@ export function ConstructorBottomMenu({
             </motion.button>
 
             {isWidgetsOpen && (
-              <div className="pointer-events-auto fixed inset-x-0 bottom-[5.75rem] z-30 flex justify-center px-3 sm:bottom-[3.75rem]">
-                <div className="flex max-w-[calc(100vw-1.5rem)] items-center gap-2 overflow-x-auto rounded-xl border border-zinc-700/80 bg-zinc-900/95 p-2 shadow-2xl backdrop-blur-sm scrollbar-hidden">
+              <div className="absolute bottom-full left-1/2 z-40 mb-2 -translate-x-1/2 overflow-visible pt-6">
+                <div className="flex items-center gap-2 overflow-visible">
                   {widgets.map((widget, index) => (
                     <motion.button
                       key={widget.type}
@@ -138,7 +138,7 @@ export function ConstructorBottomMenu({
             )}
           </div>
 
-          <div className="pointer-events-auto relative">
+          <div className="relative">
             <motion.button
               onClick={() => onBrushToggle()}
               className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all sm:gap-2 sm:px-4 sm:text-sm ${
@@ -155,7 +155,7 @@ export function ConstructorBottomMenu({
             </motion.button>
 
             {isBrushActive && (
-              <div className="pointer-events-auto fixed inset-x-0 bottom-[5.75rem] z-30 flex justify-center px-3 sm:bottom-[3.75rem]">
+              <div className="absolute bottom-full left-1/2 z-40 mb-2 -translate-x-1/2 overflow-visible">
                 <BrushToolbar
                   toolMode={drawToolMode}
                   brushColor={brushColor}
@@ -167,6 +167,7 @@ export function ConstructorBottomMenu({
           </div>
 
           <motion.button
+            type="button"
             onClick={onTextFieldAdd}
             className="flex items-center gap-1.5 rounded-lg border border-zinc-700/50 bg-zinc-900/40 px-2.5 py-1.5 text-xs font-medium text-gray-400 transition-all hover:border-yellow-500/40 hover:bg-zinc-800/40 hover:text-white sm:gap-2 sm:px-4 sm:text-sm"
             title="Add text field"
