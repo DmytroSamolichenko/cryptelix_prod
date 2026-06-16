@@ -642,7 +642,7 @@ export function DashboardCanvas({
 
         {/* Zoom controls — rendered last so clicks always reach the buttons */}
         <div
-          className="pointer-events-auto absolute bottom-24 right-3 z-[60] flex flex-col gap-2 sm:bottom-6 sm:right-6"
+          className="pointer-events-auto absolute bottom-24 right-3 z-20 flex flex-col gap-2 sm:bottom-6 sm:right-6"
           onMouseDown={(e) => e.stopPropagation()}
         >
           <motion.button

@@ -1,8 +1,20 @@
 interface CryptelixLogoProps {
   showAlpha?: boolean;
+  variant?: 'default' | 'wordmark';
 }
 
-export function CryptelixLogo({ showAlpha = true }: CryptelixLogoProps) {
+export function CryptelixLogo({ showAlpha = true, variant = 'default' }: CryptelixLogoProps) {
+  if (variant === 'wordmark') {
+    return (
+      <img
+        src="/cryptelix-wordmark.png"
+        alt="Cryptelix"
+        className="h-20 w-auto max-w-[min(480px,96vw)] object-contain object-center select-none sm:h-24 md:h-28"
+        draggable={false}
+      />
+    );
+  }
+
   return (
     <div className="flex min-w-0 items-end">
       <div className="w-[7.5rem] shrink-0 overflow-hidden rounded-lg sm:w-[10rem] md:w-[12.5rem] lg:w-[15rem] xl:w-[17.5rem]">

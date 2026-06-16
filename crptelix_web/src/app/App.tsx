@@ -144,7 +144,7 @@ function App() {
     <AuthGate>
       {(user, logout) => (
     <DndProvider backend={HTML5Backend}>
-      <div className="h-screen flex flex-col overflow-hidden bg-black">
+      <div className="flex h-screen min-h-0 flex-col bg-black">
         {/* Top Bar */}
         <TopBar
           userEmail={user.email}
@@ -159,7 +159,7 @@ function App() {
         />
 
         {/* Main Content Area */}
-        <div className="flex-1 flex overflow-hidden relative">
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
           {/* Workspace - Constructor, Database, or Portfolio */}
           <div className="flex-1 min-w-0">
             {currentView === 'constructor' ? (
@@ -195,6 +195,7 @@ function App() {
 
         {/* Constructor Bottom Menu */}
         {currentView === 'constructor' && (
+          <div className="relative z-30 shrink-0 overflow-visible">
           <ConstructorBottomMenu
             onWidgetsToggle={() => setIsWidgetsOpen(!isWidgetsOpen)}
             onBrushToggle={() => setIsBrushActive((active) => !active)}
@@ -246,6 +247,7 @@ function App() {
             onCanvasDelete={deleteCanvas}
             isWidgetsOpen={isWidgetsOpen}
           />
+          </div>
         )}
       </div>
     </DndProvider>

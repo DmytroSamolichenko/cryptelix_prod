@@ -78,8 +78,8 @@ export function ConstructorBottomMenu({
   };
 
   return (
-    <div className="relative border-t border-zinc-800/50 bg-zinc-950/80 backdrop-blur-md">
-      <div className="flex flex-col gap-2 px-2 py-2 sm:h-[54px] sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:px-3 sm:py-0">
+    <div className="relative z-30 overflow-visible border-t border-zinc-800/50 bg-zinc-950/80 backdrop-blur-md">
+      <div className="flex flex-col gap-2 overflow-visible px-2 py-2 sm:h-[54px] sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:px-3 sm:py-0">
         {/* Tools — top row on mobile, centered on desktop */}
         <div className="order-1 flex shrink-0 items-center justify-center gap-2 sm:pointer-events-none sm:absolute sm:left-1/2 sm:top-1/2 sm:z-10 sm:-translate-x-1/2 sm:-translate-y-1/2">
           <div className="pointer-events-auto relative">
@@ -99,8 +99,8 @@ export function ConstructorBottomMenu({
             </motion.button>
 
             {isWidgetsOpen && (
-              <div className="absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 animate-in slide-in-from-bottom-2 duration-200">
-                <div className="flex max-w-[calc(100vw-2rem)] items-center gap-2 overflow-x-auto scrollbar-hidden">
+              <div className="pointer-events-auto fixed inset-x-0 bottom-[5.75rem] z-30 flex justify-center px-3 sm:bottom-[3.75rem]">
+                <div className="flex max-w-[calc(100vw-1.5rem)] items-center gap-2 overflow-x-auto rounded-xl border border-zinc-700/80 bg-zinc-900/95 p-2 shadow-2xl backdrop-blur-sm scrollbar-hidden">
                   {widgets.map((widget, index) => (
                     <motion.button
                       key={widget.type}
@@ -155,7 +155,7 @@ export function ConstructorBottomMenu({
             </motion.button>
 
             {isBrushActive && (
-              <div className="absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2">
+              <div className="pointer-events-auto fixed inset-x-0 bottom-[5.75rem] z-30 flex justify-center px-3 sm:bottom-[3.75rem]">
                 <BrushToolbar
                   toolMode={drawToolMode}
                   brushColor={brushColor}

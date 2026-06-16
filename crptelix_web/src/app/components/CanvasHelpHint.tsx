@@ -34,7 +34,7 @@ export function CanvasHelpHint() {
   useEffect(() => clearCloseTimer, [clearCloseTimer]);
 
   return (
-    <div className="pointer-events-auto absolute bottom-20 left-3 z-50 sm:bottom-3">
+    <div className="pointer-events-auto absolute bottom-20 left-3 z-20 sm:bottom-3">
       <motion.div
         layout
         transition={{ type: 'spring', stiffness: 420, damping: 32 }}

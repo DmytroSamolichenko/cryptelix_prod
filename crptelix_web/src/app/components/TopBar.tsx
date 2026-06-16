@@ -82,13 +82,12 @@ export function TopBar({
 
   return (
     <>
-      <div className="border-b border-zinc-900/80 bg-black px-2 py-2 sm:h-12 sm:px-3 sm:py-0">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <div className="min-w-0 shrink">
-            <CryptelixLogo />
-          </div>
+      <div className="flex h-12 shrink-0 items-center border-b border-zinc-900/80 bg-black px-2 sm:px-3">
+        <div className="flex shrink-0 items-center self-center">
+          <CryptelixLogo />
+        </div>
 
-          <div className="scrollbar-hidden ml-auto flex min-w-0 flex-1 items-center justify-end gap-1 overflow-x-auto sm:gap-2">
+        <div className="scrollbar-hidden ml-auto flex min-w-0 flex-1 items-center justify-end gap-1 overflow-x-auto sm:gap-2">
             <div className="flex shrink-0 items-center gap-1 sm:gap-2">
               <motion.button
                 onClick={() => openModal('broker')}
@@ -206,7 +205,6 @@ export function TopBar({
             >
               <User className="h-4 w-4 text-gray-400" />
             </motion.button>
-          </div>
         </div>
       </div>
 

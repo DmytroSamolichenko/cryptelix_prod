@@ -210,7 +210,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
         className="relative z-10 w-full max-w-[420px]"
       >
         <div className="mb-8 flex justify-center">
-          <CryptelixLogo showAlpha={false} />
+          <CryptelixLogo variant="wordmark" showAlpha={false} />
         </div>
 
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/95 p-8 shadow-2xl shadow-black/40 backdrop-blur-sm">
