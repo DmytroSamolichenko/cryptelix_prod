@@ -78,10 +78,108 @@ export function ConstructorBottomMenu({
   };
 
   return (
-    <div className="relative h-[54px] bg-zinc-950/80 backdrop-blur-md border-t border-zinc-800/50">
-      <div className="h-full flex items-center justify-between px-3">
-        {/* Left - Canvas Switcher */}
-        <div className="ml-1 flex items-center gap-2 overflow-visible py-1">
+    <div className="relative border-t border-zinc-800/50 bg-zinc-950/80 backdrop-blur-md">
+      <div className="flex flex-col gap-2 px-2 py-2 sm:h-[54px] sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:px-3 sm:py-0">
+        {/* Tools — top row on mobile, centered on desktop */}
+        <div className="order-1 flex shrink-0 items-center justify-center gap-2 sm:pointer-events-none sm:absolute sm:left-1/2 sm:top-1/2 sm:z-10 sm:-translate-x-1/2 sm:-translate-y-1/2">
+          <div className="pointer-events-auto relative">
+            <motion.button
+              onClick={onWidgetsToggle}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all sm:gap-2 sm:px-4 sm:text-sm ${
+                isWidgetsOpen
+                  ? 'border-yellow-500/50 bg-yellow-500/10 text-yellow-400'
+                  : 'border-zinc-700/50 bg-zinc-900/40 text-gray-400 hover:border-yellow-500/40 hover:bg-zinc-800/40 hover:text-white'
+              }`}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              title="Widgets"
+            >
+              <LayoutGrid className="h-4 w-4 shrink-0" />
+              <span className="hidden min-[380px]:inline">Widgets</span>
+            </motion.button>
+
+            {isWidgetsOpen && (
+              <div className="absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 animate-in slide-in-from-bottom-2 duration-200">
+                <div className="flex max-w-[calc(100vw-2rem)] items-center gap-2 overflow-x-auto scrollbar-hidden">
+                  {widgets.map((widget, index) => (
+                    <motion.button
+                      key={widget.type}
+                      onClick={() => {
+                        if (widget.label === 'Price Chart') {
+                          console.log('Button Clicked: Price Chart');
+                        }
+                        onAddWidget(widget.type);
+                      }}
+                      className="group relative flex h-10 w-10 shrink-0 items-center justify-center rounded border border-zinc-700 bg-zinc-900 transition-all hover:border-zinc-500 hover:bg-zinc-800"
+                      initial={{ opacity: 0, y: -20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{
+                        delay: index * 0.05,
+                        type: 'spring',
+                        stiffness: 400,
+                        damping: 17,
+                      }}
+                      whileHover={{ scale: 1.1, y: -2 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <widget.icon className="h-5 w-5 text-gray-400 transition-colors group-hover:text-white" />
+                      <div className="pointer-events-none absolute bottom-full mb-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                        <div className="whitespace-nowrap rounded border border-zinc-700 bg-zinc-900 px-2 py-1">
+                          <span className="text-xs text-gray-300">{widget.label}</span>
+                        </div>
+                        <div className="absolute left-1/2 top-full -mt-px -translate-x-1/2">
+                          <div className="border-4 border-transparent border-t-zinc-900" />
+                        </div>
+                      </div>
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="pointer-events-auto relative">
+            <motion.button
+              onClick={() => onBrushToggle()}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all sm:gap-2 sm:px-4 sm:text-sm ${
+                isBrushActive
+                  ? 'border-yellow-500/50 bg-yellow-500/10 text-yellow-400'
+                  : 'border-zinc-700/50 bg-zinc-900/40 text-gray-400 hover:border-yellow-500/40 hover:bg-zinc-800/40 hover:text-white'
+              }`}
+              title={isBrushActive ? 'Disable draw tools' : 'Enable draw tools'}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Paintbrush className="h-4 w-4 shrink-0" />
+              <span className="hidden min-[380px]:inline">Draw</span>
+            </motion.button>
+
+            {isBrushActive && (
+              <div className="absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2">
+                <BrushToolbar
+                  toolMode={drawToolMode}
+                  brushColor={brushColor}
+                  onToolModeChange={onDrawToolModeChange}
+                  onBrushColorChange={onBrushColorChange}
+                />
+              </div>
+            )}
+          </div>
+
+          <motion.button
+            onClick={onTextFieldAdd}
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-700/50 bg-zinc-900/40 px-2.5 py-1.5 text-xs font-medium text-gray-400 transition-all hover:border-yellow-500/40 hover:bg-zinc-800/40 hover:text-white sm:gap-2 sm:px-4 sm:text-sm"
+            title="Add text field"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <Type className="h-4 w-4 shrink-0" />
+            <span className="hidden min-[380px]:inline">Text</span>
+          </motion.button>
+        </div>
+
+        {/* Canvas tabs — scrollable row */}
+        <div className="scrollbar-hidden order-2 flex min-w-0 items-center gap-1.5 overflow-x-auto py-0.5 sm:ml-1 sm:max-w-[38%] sm:py-1 lg:max-w-[42%]">
           {canvases.map((canvas) => {
             if (editingCanvasId === canvas.id) {
               return (
@@ -93,22 +191,19 @@ export function ConstructorBottomMenu({
                   onBlur={handleSaveEdit}
                   onKeyDown={handleKeyDown}
                   autoFocus
-                  className="px-4 py-1.5 rounded-lg text-sm font-medium bg-yellow-500 text-black shadow-lg shadow-yellow-500/30 outline-none border-2 border-yellow-600"
+                  className="shrink-0 rounded-lg border-2 border-yellow-600 bg-yellow-500 px-3 py-1.5 text-xs font-medium text-black shadow-lg shadow-yellow-500/30 outline-none sm:px-4 sm:text-sm"
                 />
               );
             }
             return (
-              <div
-                key={canvas.id}
-                className="relative"
-              >
+              <div key={canvas.id} className="relative shrink-0">
                 <button
                   onClick={() => onCanvasChange(canvas.id)}
                   onDoubleClick={() => handleStartEditing(canvas.id, canvas.name)}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-transform duration-150 ease-out hover:scale-105 ${
+                  className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition-transform duration-150 ease-out hover:scale-105 sm:gap-2 sm:px-4 sm:text-sm ${
                     activeCanvasId === canvas.id
                       ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/30'
-                      : 'bg-zinc-900/40 text-gray-400 hover:text-white hover:bg-zinc-800/40 border border-zinc-700/50'
+                      : 'border border-zinc-700/50 bg-zinc-900/40 text-gray-400 hover:bg-zinc-800/40 hover:text-white'
                   }`}
                 >
                   {canvas.name}
@@ -130,120 +225,17 @@ export function ConstructorBottomMenu({
           })}
           <motion.button
             onClick={onCanvasAdd}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-yellow-400 hover:bg-zinc-800/40 transition-colors"
+            className="shrink-0 rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-zinc-800/40 hover:text-yellow-400"
             title="Add new canvas"
             whileHover={{ scale: 1.1, rotate: 90 }}
             whileTap={{ scale: 0.9 }}
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="h-4 w-4" />
           </motion.button>
         </div>
 
-        {/* Center - Tools (absolutely centered) */}
-        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
-          {/* Widgets */}
-          <div className="relative">
-            <motion.button
-              onClick={onWidgetsToggle}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-all flex items-center gap-2 ${
-                isWidgetsOpen
-                  ? 'bg-yellow-500/10 border-yellow-500/50 text-yellow-400'
-                  : 'bg-zinc-900/40 border-zinc-700/50 text-gray-400 hover:text-white hover:border-yellow-500/40 hover:bg-zinc-800/40'
-              }`}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <LayoutGrid className="w-4 h-4" />
-              Widgets
-            </motion.button>
-
-            {/* Horizontal Widgets Popup Menu */}
-            {isWidgetsOpen && (
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 animate-in slide-in-from-bottom-2 duration-200">
-                <div className="flex items-center gap-2">
-                  {widgets.map((widget, index) => (
-                    <motion.button
-                      key={widget.type}
-                      onClick={() => {
-                        if (widget.label === 'Price Chart') {
-                          console.log('Button Clicked: Price Chart');
-                        }
-                        onAddWidget(widget.type);
-                      }}
-                      className="group relative flex items-center justify-center w-10 h-10 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 hover:border-zinc-500 rounded transition-all"
-                      initial={{ opacity: 0, y: -20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ 
-                        delay: index * 0.05,
-                        type: "spring",
-                        stiffness: 400,
-                        damping: 17
-                      }}
-                      whileHover={{ scale: 1.1, y: -2 }}
-                      whileTap={{ scale: 0.95 }}
-                    >
-                      <widget.icon className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" />
-                      
-                      {/* Animated Tooltip */}
-                      <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
-                        <div className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 whitespace-nowrap">
-                          <span className="text-xs text-gray-300">{widget.label}</span>
-                        </div>
-                        <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px">
-                          <div className="border-4 border-transparent border-t-zinc-900"></div>
-                        </div>
-                      </div>
-                    </motion.button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Brush tool — toggle draw mode; toolbar shows brush, eraser, colors */}
-          <div className="relative">
-            <motion.button
-              onClick={() => onBrushToggle()}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-all flex items-center gap-2 ${
-                isBrushActive
-                  ? 'bg-yellow-500/10 border-yellow-500/50 text-yellow-400'
-                  : 'bg-zinc-900/40 border-zinc-700/50 text-gray-400 hover:text-white hover:border-yellow-500/40 hover:bg-zinc-800/40'
-              }`}
-              title={isBrushActive ? 'Disable draw tools' : 'Enable draw tools'}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <Paintbrush className="w-4 h-4" />
-              Draw
-            </motion.button>
-
-            {isBrushActive && (
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2">
-                <BrushToolbar
-                  toolMode={drawToolMode}
-                  brushColor={brushColor}
-                  onToolModeChange={onDrawToolModeChange}
-                  onBrushColorChange={onBrushColorChange}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Text Field */}
-          <motion.button
-            onClick={onTextFieldAdd}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium border bg-zinc-900/40 border-zinc-700/50 text-gray-400 hover:text-white hover:border-yellow-500/40 hover:bg-zinc-800/40 transition-all flex items-center gap-2"
-            title="Add text field"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Type className="w-4 h-4" />
-            Text
-          </motion.button>
-        </div>
-
-        {/* Right - Empty space for balance */}
-        <div className="w-32"></div>
+        {/* Spacer balances centered tools on wide screens */}
+        <div className="order-3 hidden shrink-0 sm:block sm:w-24 lg:w-32" aria-hidden />
       </div>
     </div>
   );

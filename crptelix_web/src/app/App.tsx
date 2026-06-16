@@ -185,9 +185,9 @@ function App() {
             )}
           </div>
 
-          {/* Right Sidebar - AI Bot (Collapsible) */}
+          {/* Right Sidebar - AI Bot (overlay on narrow screens) */}
           {isChatOpen && (
-            <div className="w-80 flex-shrink-0 animate-in slide-in-from-right duration-300">
+            <div className="absolute inset-y-0 right-0 z-40 w-full max-w-sm animate-in shadow-2xl slide-in-from-right duration-300 sm:relative sm:inset-auto sm:z-auto sm:w-80 sm:max-w-none sm:flex-shrink-0 sm:shadow-none">
               <AiBot />
             </div>
           )}
