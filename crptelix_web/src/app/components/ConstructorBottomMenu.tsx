@@ -201,23 +201,32 @@ export function ConstructorBottomMenu({
                 <button
                   onClick={() => onCanvasChange(canvas.id)}
                   onDoubleClick={() => handleStartEditing(canvas.id, canvas.name)}
-                  className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition-transform duration-150 ease-out hover:scale-105 sm:gap-2 sm:px-4 sm:text-sm ${
+                  className={`flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition-transform duration-150 ease-out hover:scale-105 sm:gap-1.5 sm:px-4 sm:text-sm ${
                     activeCanvasId === canvas.id
                       ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/30'
                       : 'border border-zinc-700/50 bg-zinc-900/40 text-gray-400 hover:bg-zinc-800/40 hover:text-white'
                   }`}
                 >
-                  {canvas.name}
+                  <span className="min-w-0 truncate">{canvas.name}</span>
                   {canvases.length > 1 && activeCanvasId === canvas.id && (
                     <span
-                      className="-mr-1 -mt-2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-zinc-700 text-zinc-200"
+                      role="button"
+                      tabIndex={0}
+                      className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-zinc-950/90 text-zinc-100 ring-1 ring-black/25 transition-colors hover:bg-black hover:text-white"
                       onClick={(e) => {
                         e.stopPropagation();
                         onCanvasDelete(canvas.id);
                       }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onCanvasDelete(canvas.id);
+                        }
+                      }}
                       title="Delete canvas"
                     >
-                      <X className="h-2.5 w-2.5" />
+                      <X className="block h-3 w-3 shrink-0" strokeWidth={2.5} />
                     </span>
                   )}
                 </button>
