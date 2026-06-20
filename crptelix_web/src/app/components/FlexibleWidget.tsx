@@ -224,7 +224,7 @@ function FlexibleWidgetInner({
   return (
     <div
       ref={widgetRef}
-      className={`absolute ${isTextField ? '' : 'group'} ${isInteracting ? 'z-50 select-none' : isSelected ? 'z-40' : 'z-10'}`}
+      className={`absolute ${isTextField ? '' : 'group isolate'} ${isInteracting ? 'z-50 select-none' : isSelected ? 'z-40' : 'z-10'}`}
       style={{
         left: `${displayX}px`,
         top: `${displayY}px`,
@@ -291,7 +291,7 @@ function FlexibleWidgetInner({
       ) : (
         <>
           <Card
-            className={`group h-full overflow-hidden border bg-zinc-900/95 ${
+            className={`group h-full overflow-hidden border bg-zinc-900 ${
               isSelected
                 ? 'border-yellow-400/70 ring-2 ring-yellow-400/90 ring-offset-2 ring-offset-zinc-950'
                 : 'border-zinc-800 hover:border-zinc-700'
@@ -299,7 +299,7 @@ function FlexibleWidgetInner({
             onMouseDown={handleSelectOnly}
           >
             <div
-              className="absolute left-0 right-0 top-0 z-20 flex h-10 cursor-move items-center px-3 bg-gradient-to-b from-zinc-900/80 to-transparent opacity-0 transition-opacity group-hover:opacity-100"
+              className="absolute left-0 right-0 top-0 z-20 flex h-10 cursor-move items-center px-3 bg-gradient-to-b from-zinc-900 to-zinc-900/95 opacity-0 transition-opacity group-hover:opacity-100"
               onMouseDown={handleMouseDown}
             >
               <GripVertical className="h-4 w-4 text-gray-500" />
@@ -308,12 +308,14 @@ function FlexibleWidgetInner({
             <button
               type="button"
               onClick={() => onRemove(widget.id)}
-              className="absolute right-2 top-2 z-20 rounded bg-zinc-900/80 p-1 opacity-0 transition-opacity hover:bg-zinc-800 group-hover:opacity-100"
+              className="absolute right-2 top-2 z-20 rounded bg-zinc-900 p-1 opacity-0 transition-opacity hover:bg-zinc-800 group-hover:opacity-100"
             >
               <X className="h-4 w-4 text-gray-500" />
             </button>
 
-            <div className={`flex h-full min-h-0 flex-col overflow-hidden p-3 ${isInteracting ? 'pointer-events-none' : ''}`}>
+            <div
+              className={`flex h-full min-h-0 flex-col overflow-hidden bg-zinc-900 p-3 ${isInteracting ? 'pointer-events-none' : ''}`}
+            >
               <h3 className="mb-2 shrink-0 truncate text-sm font-semibold text-white">{widget.title}</h3>
               <div className={widgetBodyClass(widget.type)}>
                 {children}

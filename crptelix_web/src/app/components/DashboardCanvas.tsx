@@ -763,8 +763,10 @@ export function DashboardCanvas({
   const panCursor = isPanning ? 'cursor-grabbing' : spaceHeld ? 'cursor-grab' : 'cursor-default';
 
   const canvasControlButtonClass =
-    'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-zinc-900/90 backdrop-blur-sm transition-colors hover:bg-zinc-800 disabled:opacity-60';
+    'box-border flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-zinc-900/90 p-0 backdrop-blur-sm transition-colors hover:bg-zinc-800 disabled:opacity-60';
   const canvasControlIconClass = 'h-4 w-4 shrink-0 text-gray-400';
+  const canvasControlZoomLabelClass =
+    'max-w-full truncate text-[10px] font-medium leading-none tabular-nums text-gray-400';
 
   return (
     <div className="relative flex h-full flex-col bg-zinc-950">
@@ -895,11 +897,13 @@ export function DashboardCanvas({
           <button
             type="button"
             onClick={handleResetZoom}
-            className="flex h-9 min-w-[3.25rem] shrink-0 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900/90 px-2 text-[11px] leading-none tabular-nums text-gray-400 backdrop-blur-sm transition-colors hover:border-yellow-500/50 hover:bg-zinc-800"
+            className={`${canvasControlButtonClass} border-zinc-700 hover:border-yellow-500/50`}
             title="Reset zoom to 100%"
             aria-label="Reset zoom"
           >
-            <span ref={zoomLabelRef}>{Math.round(zoom * 100)}%</span>
+            <span ref={zoomLabelRef} className={canvasControlZoomLabelClass}>
+              {Math.round(zoom * 100)}%
+            </span>
           </button>
           <button
             type="button"
