@@ -77,9 +77,11 @@ export function ConstructorBottomMenu({
     }
   };
 
+  const scrollTabs = canvases.length > 10;
+
   return (
     <div className="relative z-30 overflow-visible border-t border-zinc-800/50 bg-zinc-950/80 backdrop-blur-md">
-      <div className="flex flex-col gap-2 overflow-visible px-2 py-2 sm:min-h-[54px] sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:overflow-visible sm:px-3 sm:py-0">
+      <div className="relative flex flex-col gap-2 px-2 py-2 sm:min-h-[54px] sm:flex-row sm:items-center sm:px-3 sm:py-0">
         {/* Tools — top row on mobile, centered on desktop */}
         <div className="order-1 flex shrink-0 items-center justify-center gap-2 sm:absolute sm:left-1/2 sm:top-1/2 sm:z-10 sm:-translate-x-1/2 sm:-translate-y-1/2">
           <div className="relative">
@@ -179,8 +181,17 @@ export function ConstructorBottomMenu({
           </motion.button>
         </div>
 
-        {/* Canvas tabs — scrollable row */}
-        <div className="scrollbar-hidden order-2 flex min-w-0 items-center gap-1.5 overflow-x-auto py-0.5 sm:ml-1 sm:max-w-[38%] sm:py-1 lg:max-w-[42%]">
+        {/* Canvas tabs — left column; shrinks until 10, then scrolls */}
+        <div
+          className={`order-2 flex min-w-0 items-center overflow-x-auto py-0.5 sm:order-1 sm:mr-2 sm:max-w-[calc(50%-6.75rem)] sm:flex-1 sm:basis-0 sm:py-1 ${
+            scrollTabs ? 'canvas-tabs-scrollbar gap-1 pb-1' : 'scrollbar-hidden gap-1.5'
+          }`}
+        >
+          <div
+            className={`flex min-h-[34px] items-center gap-1.5 ${
+              scrollTabs ? 'w-max min-w-0 pr-1' : 'min-w-0 flex-1'
+            }`}
+          >
           {canvases.map((canvas) => {
             if (editingCanvasId === canvas.id) {
               return (
@@ -192,22 +203,29 @@ export function ConstructorBottomMenu({
                   onBlur={handleSaveEdit}
                   onKeyDown={handleKeyDown}
                   autoFocus
-                  className="shrink-0 rounded-lg border-2 border-yellow-600 bg-yellow-500 px-3 py-1.5 text-xs font-medium text-black shadow-lg shadow-yellow-500/30 outline-none sm:px-4 sm:text-sm"
+                  className={`rounded-lg border-2 border-yellow-600 bg-yellow-500 px-3 py-1.5 text-xs font-medium text-black shadow-lg shadow-yellow-500/30 outline-none sm:text-sm ${
+                    scrollTabs ? 'w-[6.5rem] shrink-0' : 'min-w-0 flex-1'
+                  }`}
                 />
               );
             }
             return (
-              <div key={canvas.id} className="relative shrink-0">
+              <div
+                key={canvas.id}
+                className={scrollTabs ? 'shrink-0' : 'min-w-0 flex-1 basis-0'}
+              >
                 <button
                   onClick={() => onCanvasChange(canvas.id)}
                   onDoubleClick={() => handleStartEditing(canvas.id, canvas.name)}
-                  className={`flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition-transform duration-150 ease-out hover:scale-105 sm:gap-1.5 sm:px-4 sm:text-sm ${
+                  className={`flex w-full min-w-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors duration-150 ease-out hover:brightness-105 sm:gap-1.5 sm:px-3 sm:text-sm ${
+                    scrollTabs ? 'max-w-[6.5rem] min-w-[4.25rem]' : ''
+                  } ${
                     activeCanvasId === canvas.id
                       ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/30'
                       : 'border border-zinc-700/50 bg-zinc-900/40 text-gray-400 hover:bg-zinc-800/40 hover:text-white'
                   }`}
                 >
-                  <span className="min-w-0 truncate">{canvas.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-left">{canvas.name}</span>
                   {canvases.length > 1 && activeCanvasId === canvas.id && (
                     <span
                       role="button"
@@ -242,10 +260,14 @@ export function ConstructorBottomMenu({
           >
             <Plus className="h-4 w-4" />
           </motion.button>
+          </div>
         </div>
 
-        {/* Spacer balances centered tools on wide screens */}
-        <div className="order-3 hidden shrink-0 sm:block sm:w-24 lg:w-32" aria-hidden />
+        {/* Right balance — keeps tabs from overlapping centered tools */}
+        <div
+          className="order-3 hidden min-w-0 sm:block sm:max-w-[calc(50%-6.75rem)] sm:flex-1 sm:basis-0"
+          aria-hidden
+        />
       </div>
     </div>
   );
