@@ -1,7 +1,7 @@
 import { Widget } from './DashboardWidget';
 import { WidgetType } from './DashboardWidget';
 import { FlexibleWidget } from './FlexibleWidget';
-import { ZoomIn, ZoomOut } from 'lucide-react';
+import { ZoomIn, ZoomOut, LocateFixed } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { DrawingCanvas } from './DrawingCanvas';
@@ -35,6 +35,15 @@ const ZOOM_MAX = 3;
 const ZOOM_STEP = 0.25;
 const ZOOM_WHEEL_STEP = 0.1;
 const ZOOM_ANIM_MS = 280;
+const SCROLL_TO_WIDGETS_MS = 520;
+
+function clampScroll(value: number, max: number): number {
+  return Math.max(0, Math.min(max, value));
+}
+
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+}
 
 function clampZoom(value: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
@@ -67,6 +76,88 @@ function scrollForWorldPoint(
   return {
     scrollLeft: worldX * zoomLevel - anchorX,
     scrollTop: worldY * zoomLevel - anchorY,
+  };
+}
+
+type WorldBounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  centerX: number;
+  centerY: number;
+};
+
+function getWidgetsWorldBounds(widgetList: Widget[]): WorldBounds | null {
+  if (widgetList.length === 0) return null;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const widget of widgetList) {
+    const x = WORLD_ORIGIN + (widget.position?.x ?? 0);
+    const y = WORLD_ORIGIN + (widget.position?.y ?? 0);
+    const width = widget.size?.width ?? 400;
+    const height = widget.size?.height ?? 320;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + width);
+    maxY = Math.max(maxY, y + height);
+  }
+
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    centerX: (minX + maxX) / 2,
+    centerY: (minY + maxY) / 2,
+  };
+}
+
+function isBoundsInViewport(
+  bounds: WorldBounds,
+  scrollLeft: number,
+  scrollTop: number,
+  clientWidth: number,
+  clientHeight: number,
+  zoomLevel: number
+): boolean {
+  const viewLeft = scrollLeft / zoomLevel;
+  const viewTop = scrollTop / zoomLevel;
+  const viewRight = (scrollLeft + clientWidth) / zoomLevel;
+  const viewBottom = (scrollTop + clientHeight) / zoomLevel;
+
+  return !(
+    bounds.maxX < viewLeft ||
+    bounds.minX > viewRight ||
+    bounds.maxY < viewTop ||
+    bounds.minY > viewBottom
+  );
+}
+
+function computeScrollTargetForBounds(
+  bounds: WorldBounds,
+  container: HTMLDivElement,
+  zoomLevel: number
+) {
+  const anchorX = container.clientWidth / 2;
+  const anchorY = container.clientHeight / 2;
+  const { scrollLeft, scrollTop } = scrollForWorldPoint(
+    bounds.centerX,
+    bounds.centerY,
+    zoomLevel,
+    anchorX,
+    anchorY
+  );
+  const maxScrollLeft = Math.max(0, WORLD_SIZE * zoomLevel - container.clientWidth);
+  const maxScrollTop = Math.max(0, WORLD_SIZE * zoomLevel - container.clientHeight);
+
+  return {
+    scrollLeft: clampScroll(scrollLeft, maxScrollLeft),
+    scrollTop: clampScroll(scrollTop, maxScrollTop),
   };
 }
 
@@ -109,12 +200,15 @@ export function DashboardCanvas({
   const [zoom, setZoom] = useState(DEFAULT_CANVAS_ZOOM);
   const zoomRef = useRef(DEFAULT_CANVAS_ZOOM);
   const zoomAnimFrameRef = useRef<number | null>(null);
+  const scrollAnimFrameRef = useRef<number | null>(null);
   const zoomLabelRef = useRef<HTMLSpanElement | null>(null);
   const isZoomAnimatingRef = useRef(false);
   const [isPanning, setIsPanning] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
+  const [widgetsOffScreen, setWidgetsOffScreen] = useState(false);
+  const [isScrollingToWidgets, setIsScrollingToWidgets] = useState(false);
   const knownTextWidgetIdsRef = useRef(new Set<string>());
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const worldSurfaceRef = useRef<HTMLDivElement | null>(null);
@@ -184,6 +278,9 @@ export function DashboardCanvas({
       if (zoomAnimFrameRef.current != null) {
         cancelAnimationFrame(zoomAnimFrameRef.current);
       }
+      if (scrollAnimFrameRef.current != null) {
+        cancelAnimationFrame(scrollAnimFrameRef.current);
+      }
     };
   }, []);
 
@@ -200,7 +297,16 @@ export function DashboardCanvas({
     return () => cancelAnimationFrame(id);
   }, []);
 
+  const cancelScrollAnimation = () => {
+    if (scrollAnimFrameRef.current != null) {
+      cancelAnimationFrame(scrollAnimFrameRef.current);
+      scrollAnimFrameRef.current = null;
+    }
+    setIsScrollingToWidgets(false);
+  };
+
   const cancelZoomAnimation = () => {
+    cancelScrollAnimation();
     if (zoomAnimFrameRef.current != null) {
       cancelAnimationFrame(zoomAnimFrameRef.current);
       zoomAnimFrameRef.current = null;
@@ -307,6 +413,115 @@ export function DashboardCanvas({
     applyZoomAtAnchor(DEFAULT_CANVAS_ZOOM, anchorX, anchorY, { animate: true });
   }, []);
 
+  const updateWidgetsVisibility = useCallback(() => {
+    const container = scrollContainerRef.current;
+    const bounds = getWidgetsWorldBounds(widgets);
+    if (!container || !bounds) {
+      setWidgetsOffScreen(false);
+      return;
+    }
+    const visible = isBoundsInViewport(
+      bounds,
+      container.scrollLeft,
+      container.scrollTop,
+      container.clientWidth,
+      container.clientHeight,
+      zoomRef.current
+    );
+    setWidgetsOffScreen(!visible);
+  }, [widgets]);
+
+  const animateScrollTo = useCallback(
+    (targetLeft: number, targetTop: number, onComplete?: () => void) => {
+      const container = scrollContainerRef.current;
+      if (!container) return;
+
+      cancelScrollAnimation();
+
+      const startLeft = container.scrollLeft;
+      const startTop = container.scrollTop;
+      const deltaLeft = targetLeft - startLeft;
+      const deltaTop = targetTop - startTop;
+
+      if (Math.abs(deltaLeft) < 1 && Math.abs(deltaTop) < 1) {
+        onComplete?.();
+        return;
+      }
+
+      setIsScrollingToWidgets(true);
+      const startTime = performance.now();
+
+      const tick = (now: number) => {
+        const progress = Math.min(1, (now - startTime) / SCROLL_TO_WIDGETS_MS);
+        const eased = easeInOutCubic(progress);
+        container.scrollLeft = startLeft + deltaLeft * eased;
+        container.scrollTop = startTop + deltaTop * eased;
+
+        if (progress < 1) {
+          scrollAnimFrameRef.current = requestAnimationFrame(tick);
+        } else {
+          scrollAnimFrameRef.current = null;
+          setIsScrollingToWidgets(false);
+          updateWidgetsVisibility();
+          onComplete?.();
+        }
+      };
+
+      scrollAnimFrameRef.current = requestAnimationFrame(tick);
+    },
+    [updateWidgetsVisibility]
+  );
+
+  const handleGoToWidgets = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    cancelScrollAnimation();
+
+    const bounds = getWidgetsWorldBounds(widgets);
+    const zoomLevel = zoomRef.current;
+
+    if (!bounds) {
+      const anchorX = container.clientWidth / 2;
+      const anchorY = container.clientHeight / 2;
+      const targetLeft = clampScroll(
+        WORLD_ORIGIN * zoomLevel - anchorX,
+        Math.max(0, WORLD_SIZE * zoomLevel - container.clientWidth)
+      );
+      const targetTop = clampScroll(
+        WORLD_ORIGIN * zoomLevel - anchorY,
+        Math.max(0, WORLD_SIZE * zoomLevel - container.clientHeight)
+      );
+      animateScrollTo(targetLeft, targetTop);
+      return;
+    }
+
+    const { scrollLeft, scrollTop } = computeScrollTargetForBounds(bounds, container, zoomLevel);
+    animateScrollTo(scrollLeft, scrollTop);
+  }, [widgets, animateScrollTo]);
+
+  useEffect(() => {
+    updateWidgetsVisibility();
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const onScroll = () => {
+      if (!scrollAnimFrameRef.current) {
+        updateWidgetsVisibility();
+      }
+    };
+    container.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      container.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [updateWidgetsVisibility, widgets.length]);
+
+  useEffect(() => {
+    updateWidgetsVisibility();
+  }, [zoom, updateWidgetsVisibility]);
+
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
       const state = panStateRef.current;
@@ -364,6 +579,7 @@ export function DashboardCanvas({
   }, []);
 
   const startPan = (event: React.MouseEvent<HTMLDivElement>) => {
+    cancelScrollAnimation();
     const container = scrollContainerRef.current;
     if (!container) return;
     event.preventDefault();
@@ -645,6 +861,34 @@ export function DashboardCanvas({
           className="pointer-events-auto absolute bottom-24 right-3 z-20 flex flex-col gap-2 sm:bottom-6 sm:right-6"
           onMouseDown={(e) => e.stopPropagation()}
         >
+          <motion.button
+            type="button"
+            onClick={handleGoToWidgets}
+            disabled={isScrollingToWidgets}
+            className={`p-2 backdrop-blur-sm border rounded-lg transition-all disabled:opacity-60 ${
+              widgetsOffScreen
+                ? 'border-yellow-500/60 bg-yellow-500/15 shadow-[0_0_14px_rgba(250,204,21,0.2)] hover:bg-yellow-500/25'
+                : 'border-zinc-700 bg-zinc-900/90 hover:bg-zinc-800 hover:border-yellow-500/50'
+            }`}
+            title="Go to widgets"
+            aria-label="Go to widgets"
+            whileHover={isScrollingToWidgets ? undefined : { scale: 1.1 }}
+            whileTap={isScrollingToWidgets ? undefined : { scale: 0.9 }}
+            animate={
+              widgetsOffScreen && !isScrollingToWidgets
+                ? { boxShadow: ['0 0 0 rgba(250,204,21,0)', '0 0 12px rgba(250,204,21,0.35)', '0 0 0 rgba(250,204,21,0)'] }
+                : undefined
+            }
+            transition={
+              widgetsOffScreen
+                ? { duration: 2.2, repeat: Infinity, ease: 'easeInOut' }
+                : undefined
+            }
+          >
+            <LocateFixed
+              className={`h-4 w-4 ${widgetsOffScreen ? 'text-yellow-400' : 'text-gray-400'}`}
+            />
+          </motion.button>
           <motion.button
             type="button"
             onClick={handleZoomIn}
