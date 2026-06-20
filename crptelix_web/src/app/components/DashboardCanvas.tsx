@@ -3,7 +3,6 @@ import { WidgetType } from './DashboardWidget';
 import { FlexibleWidget } from './FlexibleWidget';
 import { ZoomIn, ZoomOut, LocateFixed } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { motion } from 'motion/react';
 import { DrawingCanvas } from './DrawingCanvas';
 import { CanvasTextElement, type TextElementState, DEFAULT_FONT_SIZE, normalizeCommittedHtml } from './CanvasTextElement';
 import { CanvasWidgetBody } from './CanvasWidgetBody';
@@ -763,9 +762,13 @@ export function DashboardCanvas({
 
   const panCursor = isPanning ? 'cursor-grabbing' : spaceHeld ? 'cursor-grab' : 'cursor-default';
 
+  const canvasControlButtonClass =
+    'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-zinc-900/90 backdrop-blur-sm transition-colors hover:bg-zinc-800 disabled:opacity-60';
+  const canvasControlIconClass = 'h-4 w-4 shrink-0 text-gray-400';
+
   return (
-    <div className="h-full flex flex-col bg-zinc-950">
-      <div className="flex-1 overflow-hidden relative bg-zinc-950">
+    <div className="relative flex h-full flex-col bg-zinc-950">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-zinc-950">
         <div
           ref={scrollContainerRef}
           className={`absolute inset-0 overflow-auto scrollbar-hidden ${panCursor}`}
@@ -854,74 +857,59 @@ export function DashboardCanvas({
           </div>
         </div>
 
-        <CanvasHelpHint />
+      </div>
 
-        {/* Zoom controls — rendered last so clicks always reach the buttons */}
+      {/* Fixed UI overlays — outside scroll/zoom layer */}
+      <div className="pointer-events-none absolute inset-0 z-20">
+        <CanvasHelpHint />
         <div
-          className="pointer-events-auto absolute bottom-24 right-3 z-20 flex flex-col gap-2 sm:bottom-6 sm:right-6"
+          className="pointer-events-auto absolute bottom-24 right-3 flex flex-col gap-2 sm:bottom-6 sm:right-6"
+          style={{ transform: 'none' }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <motion.button
+          <button
             type="button"
             onClick={handleGoToWidgets}
             disabled={isScrollingToWidgets}
-            className={`p-2 backdrop-blur-sm border rounded-lg transition-all disabled:opacity-60 ${
+            className={`${canvasControlButtonClass} ${
               widgetsOffScreen
                 ? 'border-yellow-500/60 bg-yellow-500/15 shadow-[0_0_14px_rgba(250,204,21,0.2)] hover:bg-yellow-500/25'
-                : 'border-zinc-700 bg-zinc-900/90 hover:bg-zinc-800 hover:border-yellow-500/50'
-            }`}
+                : 'border-zinc-700 hover:border-yellow-500/50'
+            } ${widgetsOffScreen && !isScrollingToWidgets ? 'animate-pulse' : ''}`}
             title="Go to widgets"
             aria-label="Go to widgets"
-            whileHover={isScrollingToWidgets ? undefined : { scale: 1.1 }}
-            whileTap={isScrollingToWidgets ? undefined : { scale: 0.9 }}
-            animate={
-              widgetsOffScreen && !isScrollingToWidgets
-                ? { boxShadow: ['0 0 0 rgba(250,204,21,0)', '0 0 12px rgba(250,204,21,0.35)', '0 0 0 rgba(250,204,21,0)'] }
-                : undefined
-            }
-            transition={
-              widgetsOffScreen
-                ? { duration: 2.2, repeat: Infinity, ease: 'easeInOut' }
-                : undefined
-            }
           >
             <LocateFixed
-              className={`h-4 w-4 ${widgetsOffScreen ? 'text-yellow-400' : 'text-gray-400'}`}
+              className={`${canvasControlIconClass} ${widgetsOffScreen ? 'text-yellow-400' : ''}`}
             />
-          </motion.button>
-          <motion.button
+          </button>
+          <button
             type="button"
             onClick={handleZoomIn}
-            className="p-2 bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 rounded-lg hover:bg-zinc-800 hover:border-yellow-500/50 transition-all"
+            className={`${canvasControlButtonClass} border-zinc-700 hover:border-yellow-500/50`}
             title="Zoom In"
             aria-label="Zoom in"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
           >
-            <ZoomIn className="w-4 h-4 text-gray-400" />
-          </motion.button>
-          <motion.button
+            <ZoomIn className={canvasControlIconClass} />
+          </button>
+          <button
             type="button"
             onClick={handleResetZoom}
-            className="px-2 py-1 bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 rounded-lg hover:bg-zinc-800 hover:border-yellow-500/50 transition-all text-xs text-gray-400"
+            className="flex h-9 min-w-[3.25rem] shrink-0 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900/90 px-2 text-[11px] leading-none tabular-nums text-gray-400 backdrop-blur-sm transition-colors hover:border-yellow-500/50 hover:bg-zinc-800"
             title="Reset zoom to 100%"
             aria-label="Reset zoom"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
           >
             <span ref={zoomLabelRef}>{Math.round(zoom * 100)}%</span>
-          </motion.button>
-          <motion.button
+          </button>
+          <button
             type="button"
             onClick={handleZoomOut}
-            className="p-2 bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 rounded-lg hover:bg-zinc-800 hover:border-yellow-500/50 transition-all"
+            className={`${canvasControlButtonClass} border-zinc-700 hover:border-yellow-500/50`}
             title="Zoom Out"
             aria-label="Zoom out"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
           >
-            <ZoomOut className="w-4 h-4 text-gray-400" />
-          </motion.button>
+            <ZoomOut className={canvasControlIconClass} />
+          </button>
         </div>
       </div>
     </div>
