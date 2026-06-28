@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Security Policy — Cryptelix</title>
+  <meta name="description" content="Cryptelix Data Security Policy — encryption, infrastructure, and read-only API safeguards.">
+  <link rel="canonical" href="https://cryptelix.app/data-security-policy">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300;1,400&family=DM+Mono:wght@400;500&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --gold:     #C9A84C;
+      --bg:       #0C0C0C;
+      --surface:  #141414;
+      --line:     #1E1E1E;
+      --text:     #B8B8B8;
+      --dim:      #5C5C5C;
+      --bright:   #EBEBEB;
+    }
+
+    body {
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.8;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .doc { max-width: 800px; margin: 0 auto; }
+
+    .section { padding: 64px 48px; }
+
+    .doc-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-bottom: 56px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid var(--line);
+      gap: 24px;
+    }
+
+    .doc-header img { height: 52px; width: auto; opacity: 0.85; flex-shrink: 0; }
+
+    .doc-title {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--dim);
+      letter-spacing: 0.04em;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      font-size: 30px;
+      font-weight: 300;
+      color: var(--bright);
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+    }
+
+    h1 span { color: var(--gold); }
+
+    h2 {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin-top: 52px;
+      margin-bottom: 22px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    h2::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--line);
+    }
+
+    p {
+      color: var(--text);
+      margin-bottom: 18px;
+      font-weight: 300;
+    }
+
+    .lead {
+      font-size: 16px;
+      color: #9A9A9A;
+      line-height: 1.85;
+      font-weight: 300;
+      margin-bottom: 0;
+    }
+
+    ul { list-style: none; padding: 0; margin: 0 0 20px; }
+
+    ul li {
+      padding: 10px 0 10px 18px;
+      position: relative;
+      color: var(--text);
+      font-weight: 300;
+      border-bottom: 1px solid var(--line);
+      font-size: 14.5px;
+    }
+
+    ul li:first-child { border-top: 1px solid var(--line); }
+
+    ul li::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--gold);
+      opacity: 0.7;
+    }
+
+    ul li strong { color: var(--bright); font-weight: 500; }
+
+    .steps { list-style: none; padding: 0; margin: 0 0 20px; counter-reset: s; }
+
+    .steps li {
+      counter-increment: s;
+      display: flex;
+      gap: 20px;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--line);
+      font-size: 14.5px;
+      color: var(--text);
+      font-weight: 300;
+    }
+
+    .steps li:first-child { border-top: 1px solid var(--line); }
+
+    .steps li::before {
+      content: counter(s);
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--gold);
+      min-width: 20px;
+      padding-top: 3px;
+      opacity: 0.8;
+      flex-shrink: 0;
+    }
+
+    code {
+      font-family: 'DM Mono', 'Fira Mono', monospace;
+      font-size: 12.5px;
+      color: var(--gold);
+      opacity: 0.85;
+      letter-spacing: 0.02em;
+    }
+
+    .note {
+      margin: 32px 0;
+      padding: 20px 24px;
+      border-left: 1px solid var(--gold);
+      background: rgba(201,168,76,0.04);
+    }
+
+    .note p { margin: 0; font-size: 14px; color: #A0A0A0; font-weight: 300; }
+
+    .note .note-label {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 8px;
+      display: block;
+      opacity: 0.9;
+    }
+
+    .doc-footer {
+      padding: 32px 48px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .doc-footer p { font-size: 12px; color: var(--dim); margin: 0; font-weight: 300; }
+
+    .back-link {
+      display: inline-block;
+      margin: 24px 48px 0;
+      font-size: 13px;
+      color: var(--dim);
+      text-decoration: none;
+    }
+
+    .back-link:hover { color: var(--gold); }
+
+    @media (max-width: 600px) {
+      .section { padding: 40px 20px; }
+      .doc-header {
+        flex-direction: column-reverse;
+        align-items: flex-start;
+        gap: 20px;
+        margin-bottom: 40px;
+        padding-bottom: 24px;
+      }
+      .doc-header img { height: 36px; }
+      h1 { font-size: 24px; }
+      .doc-footer { padding: 24px 20px; flex-direction: column; align-items: flex-start; }
+      .back-link { margin: 16px 20px 0; }
+    }
+  </style>
+</head>
+<body>
+<a class="back-link" href="/">← Back to Cryptelix</a>
+<div class="doc">
+  <div class="section">
+    <div class="doc-header">
+      <div>
+        <p class="doc-title">Cryptelix Analytics Platform &mdash; Technical Standards</p>
+        <h1>Data <span>Security</span></h1>
+      </div>
+      <img src="/cryptelix-wordmark.png" alt="Cryptelix">
+    </div>
+
+    <p class="lead">
+      Because Cryptelix touches your exchange API keys, we treat security as infrastructure —
+      not an afterthought. Here's how the system is built.
+    </p>
+
+    <h2>Encryption at rest</h2>
+    <p>
+      Your API keys and secret tokens are never written to disk in readable form. The moment a key
+      arrives at our servers, it is encrypted and stored. Here's the flow:
+    </p>
+
+    <ol class="steps">
+      <li>Keys are encrypted immediately on ingestion using <code>AES-256</code> — the same standard used by banks and governments.</li>
+      <li>The master encryption keys live in a dedicated secrets manager, completely isolated from the main application database. They are never co-located.</li>
+      <li>If an attacker obtained a full dump of our database, they would get encrypted binary strings — useless without the master key, which is stored separately.</li>
+    </ol>
+
+    <h2>Encryption in transit</h2>
+    <ul>
+      <li><strong>TLS 1.3 everywhere.</strong> All traffic between your browser, our servers, and Binance's API runs over <code>TLS 1.3 / HTTPS</code>. There is no fallback to older protocols.</li>
+      <li><strong>Signed session tokens.</strong> Authentication runs through cryptographically signed <code>JWT</code> tokens with short lifetimes. Sessions expire automatically if anything about the context changes.</li>
+      <li><strong>Private infrastructure.</strong> Databases and processing modules sit inside private cloud networks with restricted port access. Nothing is publicly reachable except what needs to be.</li>
+    </ul>
+
+    <h2>The structural safety net</h2>
+    <p>
+      Read-only access isn't just a policy — it's a hard technical constraint built into Binance's own engine.
+      Even in the worst-case scenario, this matters a great deal:
+    </p>
+
+    <div class="note">
+      <span class="note-label">Structural guarantee</span>
+      <p>
+        Even if an attacker gained complete access to our servers, they could not move funds, place a trade,
+        or withdraw anything. Binance's API will refuse any write or withdrawal command coming from a
+        read-only key — full stop. No amount of server access changes that.
+      </p>
+    </div>
+
+    <p>
+      You remain responsible for verifying that trading and withdrawal permissions are unchecked
+      when you generate your key inside your Binance account. That's the one step on your side of the line.
+    </p>
+  </div>
+
+  <div class="doc-footer">
+    <p>Cryptelix Analytics Platform</p>
+    <p>Effective June 2026 &mdash; supersedes all prior versions</p>
+  </div>
+</div>
+</body>
+</html>

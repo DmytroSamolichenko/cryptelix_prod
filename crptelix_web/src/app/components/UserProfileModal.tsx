@@ -152,6 +152,29 @@ export function UserProfileModal({
                   <span className="font-medium">Log Out</span>
                 </motion.button>
               </div>
+
+              <nav
+                className="mt-6 pt-4 border-t border-zinc-800 flex items-center justify-center gap-4 text-xs text-gray-500"
+                aria-label="Legal"
+              >
+                <a
+                  href="/privacy-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-yellow-400/80 transition-colors"
+                >
+                  Privacy Policy
+                </a>
+                <span className="text-zinc-700" aria-hidden="true">·</span>
+                <a
+                  href="/data-security-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-yellow-400/80 transition-colors"
+                >
+                  Data Security Policy
+                </a>
+              </nav>
             </div>
           </motion.div>
         </>
