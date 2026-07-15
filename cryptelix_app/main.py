@@ -49,6 +49,7 @@ from models import ChatMessage as ChatMessageModel  # noqa: F401 — register OR
 from models import APIKey as APIKeyModel
 from models import BinanceWs as BinanceWsModel
 from models import ChatSession as ChatSessionModel
+from models import Feedback as FeedbackModel  # noqa: F401 — register ORM mapper
 from models import PairInventory as PairInventoryModel  # noqa: F401
 from models import Trade as TradeModel
 from models import User as UserModel
@@ -61,12 +62,15 @@ from schemas import (
     CheckEmailResponse,
     ExchangeCredentialsUpsertRequest,
     ExchangeSyncTradesRequest,
+    FeedbackStatusResponse,
+    FeedbackSubmitRequest,
     TradeCreate,
     TradeUpdate,
     Trade as TradeSchema,
     UserPublic,
 )
 from security import encrypt_data
+import feedback_service as feedback_svc
 
 
 logger = logging.getLogger("cryptelix")
@@ -459,6 +463,11 @@ async def upsert_exchange_credentials(
         db.rollback()
         raise _internal_error(exc) from exc
 
+    try:
+        feedback_svc.ensure_feedback_row(db, current_user.id)
+    except Exception as exc:
+        logger.exception("Failed to ensure feedback row for user %s: %s", current_user.id, exc)
+
     job_id = str(uuid4())
     _CONNECT_JOBS[job_id] = {
         "user_id": current_user.id,
@@ -495,6 +504,56 @@ async def get_exchange_credentials_status(
         "connected_exchanges": sorted(connected),
         "binance_connected": "binance" in connected,
     }
+
+
+@app.get("/api/v1/feedback/status", response_model=FeedbackStatusResponse)
+def get_feedback_status(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    # Existing users who connected keys before this feature get a row on first poll.
+    has_key = (
+        db.query(APIKeyModel.id)
+        .filter(APIKeyModel.user_id == current_user.id)
+        .first()
+        is not None
+    )
+    if has_key:
+        try:
+            feedback_svc.ensure_feedback_row(db, current_user.id)
+        except Exception as exc:
+            logger.exception(
+                "Failed to ensure feedback row for user %s: %s", current_user.id, exc
+            )
+    return feedback_svc.build_status_payload(db, current_user.id)
+
+
+@app.post("/api/v1/feedback/skip", response_model=FeedbackStatusResponse)
+@limiter.limit("10/minute")
+def post_feedback_skip(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    return feedback_svc.skip_feedback(db, current_user.id)
+
+
+@app.post("/api/v1/feedback/submit")
+@limiter.limit("10/minute")
+def post_feedback_submit(
+    request: Request,
+    body: FeedbackSubmitRequest,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    return feedback_svc.submit_feedback(
+        db,
+        current_user.id,
+        q1=body.q1,
+        q2=body.q2,
+        q3=body.q3,
+        comment=body.comment,
+    )
 
 
 @app.delete("/api/v1/exchanges/credentials/{exchange_name}")
