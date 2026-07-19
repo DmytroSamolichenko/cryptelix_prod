@@ -463,11 +463,6 @@ async def upsert_exchange_credentials(
         db.rollback()
         raise _internal_error(exc) from exc
 
-    try:
-        feedback_svc.ensure_feedback_row(db, current_user.id)
-    except Exception as exc:
-        logger.exception("Failed to ensure feedback row for user %s: %s", current_user.id, exc)
-
     job_id = str(uuid4())
     _CONNECT_JOBS[job_id] = {
         "user_id": current_user.id,
@@ -511,20 +506,14 @@ def get_feedback_status(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    # Existing users who connected keys before this feature get a row on first poll.
-    has_key = (
-        db.query(APIKeyModel.id)
-        .filter(APIKeyModel.user_id == current_user.id)
-        .first()
-        is not None
-    )
-    if has_key:
-        try:
-            feedback_svc.ensure_feedback_row(db, current_user.id)
-        except Exception as exc:
-            logger.exception(
-                "Failed to ensure feedback row for user %s: %s", current_user.id, exc
-            )
+    # The row is created on first status poll after login — the active-usage
+    # countdown starts from app entry, not from connecting an API key.
+    try:
+        feedback_svc.ensure_feedback_row(db, current_user.id)
+    except Exception as exc:
+        logger.exception(
+            "Failed to ensure feedback row for user %s: %s", current_user.id, exc
+        )
     return feedback_svc.build_status_payload(db, current_user.id)
 
 

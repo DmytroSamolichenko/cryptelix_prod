@@ -14,8 +14,8 @@ STATUS_NOT_OFFERED = "not_offered"
 STATUS_SKIPPED = "skipped"
 STATUS_SUBMITTED = "submitted"
 
-SKIP_COOLDOWN = timedelta(minutes=10)
-REQUIRED_ACTIVE_MS = 3 * 60 * 1000  # 30 minutes of visible app time
+SKIP_COOLDOWN = timedelta(hours=1)
+REQUIRED_ACTIVE_MS = 30 * 60 * 1000  # 30 minutes of visible app time
 
 
 def _utcnow() -> datetime:
@@ -32,7 +32,7 @@ def get_feedback_for_user(db: Session, user_id: int) -> Feedback | None:
 
 
 def ensure_feedback_row(db: Session, user_id: int) -> Feedback:
-    """Create not_offered row when API key is connected (idempotent)."""
+    """Create not_offered row on first app entry after login (idempotent)."""
     existing = get_feedback_for_user(db, user_id)
     if existing is not None:
         return existing
