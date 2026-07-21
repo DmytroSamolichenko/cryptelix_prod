@@ -18,6 +18,7 @@ import {
 } from 'recharts';
 
 import { apiFetch } from '../lib/apiClient';
+import { useTradesSynced } from '../lib/useTradesSynced';
 
 const WEEKDAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 
@@ -116,6 +117,8 @@ export function WvlWidget() {
   useEffect(() => {
     void fetchWvl();
   }, [fetchWvl]);
+
+  useTradesSynced(fetchWvl);
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col gap-2">

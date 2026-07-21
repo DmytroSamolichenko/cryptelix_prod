@@ -694,22 +694,32 @@ export function DashboardCanvas({
     });
   };
 
-  const handleCanvasWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
+  // Native non-passive wheel listener — React's onWheel is passive and
+  // cannot call preventDefault (floods console + breaks zoom intent).
+  const applyZoomAtAnchorRef = useRef(applyZoomAtAnchor);
+  applyZoomAtAnchorRef.current = applyZoomAtAnchor;
+
+  useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    const rect = container.getBoundingClientRect();
-    const anchorX = event.clientX - rect.left;
-    const anchorY = event.clientY - rect.top;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = container.getBoundingClientRect();
+      const anchorX = event.clientX - rect.left;
+      const anchorY = event.clientY - rect.top;
 
-    const prevZoom = zoomRef.current;
-    const delta = event.deltaY < 0 ? ZOOM_WHEEL_STEP : -ZOOM_WHEEL_STEP;
-    const nextZoom = clampZoom(prevZoom + delta);
-    if (nextZoom === prevZoom) return;
+      const prevZoom = zoomRef.current;
+      const delta = event.deltaY < 0 ? ZOOM_WHEEL_STEP : -ZOOM_WHEEL_STEP;
+      const nextZoom = clampZoom(prevZoom + delta);
+      if (nextZoom === prevZoom) return;
 
-    applyZoomAtAnchor(nextZoom, anchorX, anchorY);
-  };
+      applyZoomAtAnchorRef.current(nextZoom, anchorX, anchorY);
+    };
+
+    container.addEventListener('wheel', onWheel, { passive: false });
+    return () => container.removeEventListener('wheel', onWheel);
+  }, []);
 
   const handleAddWidgetFromToolbar = (type: WidgetType) => {
     const widgetTitles: Record<WidgetType, string> = {
@@ -775,7 +785,6 @@ export function DashboardCanvas({
           ref={scrollContainerRef}
           className={`absolute inset-0 overflow-auto scrollbar-hidden ${panCursor}`}
           onMouseDown={handleCanvasMouseDown}
-          onWheel={handleCanvasWheel}
           onContextMenu={(e) => e.preventDefault()}
         >
           <div
