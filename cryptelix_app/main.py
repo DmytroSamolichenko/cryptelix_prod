@@ -31,6 +31,10 @@ from sqlalchemy.orm import Session
 from analytics_service import get_user_financial_summary
 from ai_service import AIAnalysisError, analyze_trade_sync
 import chat_service as chat_svc
+from trade_visibility import (
+    connected_exchange_names,
+    visible_trades_sqlalchemy_filter,
+)
 from auth import (
     activate_user,
     check_email_status,
@@ -274,11 +278,16 @@ async def get_profit_trend(
             detail=f"period must be one of: {', '.join(sorted(allowed))}",
         )
 
+    connected = connected_exchange_names(db, user_id)
+
     if period == "trades":
         try:
             rows: List[TradeModel] = (
                 db.query(TradeModel)
-                .filter(TradeModel.user_id == user_id)
+                .filter(
+                    TradeModel.user_id == user_id,
+                    visible_trades_sqlalchemy_filter(connected),
+                )
                 .order_by(TradeModel.date.asc())
                 .all()
             )
@@ -302,12 +311,32 @@ async def get_profit_trend(
         return out
 
     trunc_sql = _PROFIT_TREND_PERIOD_TRUNC[period]
+    # Hide exchange trades when that exchange API key is disconnected.
+    if connected:
+        exchange_list = ", ".join(f"'{name}'" for name in sorted(connected))
+        visibility_sql = f"""
+            AND (
+                COALESCE(is_manual, false) = true
+                OR exchange_name IS NULL
+                OR TRIM(exchange_name) = ''
+                OR LOWER(TRIM(exchange_name)) IN ({exchange_list})
+            )
+        """
+    else:
+        visibility_sql = """
+            AND (
+                COALESCE(is_manual, false) = true
+                OR exchange_name IS NULL
+                OR TRIM(exchange_name) = ''
+            )
+        """
     sql = text(
         f"""
         SELECT date_trunc('{trunc_sql}', date) AS bucket,
                SUM(COALESCE(pnl, 0) - COALESCE(commission, 0)) AS period_net
         FROM trades
         WHERE user_id = :user_id
+        {visibility_sql}
         GROUP BY 1
         ORDER BY 1
         """
@@ -771,10 +800,12 @@ async def get_trades(
     Return all trades as a list of objects with date, pair, type, entry, exit, quantity, pnl, commission.
     """
     try:
+        connected = connected_exchange_names(db, current_user.id)
         trades: List[TradeModel] = (
             db.query(TradeModel)
             .filter(
-                TradeModel.user_id == current_user.id
+                TradeModel.user_id == current_user.id,
+                visible_trades_sqlalchemy_filter(connected),
             )
             .order_by(TradeModel.date.desc())
             .all()
@@ -819,12 +850,14 @@ async def get_trades_wvl(
     end_exclusive = datetime.combine(start_date + timedelta(days=7), time.min)
 
     try:
+        connected = connected_exchange_names(db, current_user.id)
         rows: List[TradeModel] = (
             db.query(TradeModel)
             .filter(
                 TradeModel.user_id == current_user.id,
                 TradeModel.date >= start_dt,
                 TradeModel.date < end_exclusive,
+                visible_trades_sqlalchemy_filter(connected),
             )
             .all()
         )
@@ -886,9 +919,13 @@ async def get_trades_stats(
     Key Metrics / Stats for dashboard: TNP, profit factor, trade counts, max drawdown, etc.
     """
     try:
+        connected = connected_exchange_names(db, current_user.id)
         rows: List[TradeModel] = (
             db.query(TradeModel)
-            .filter(TradeModel.user_id == current_user.id)
+            .filter(
+                TradeModel.user_id == current_user.id,
+                visible_trades_sqlalchemy_filter(connected),
+            )
             .order_by(TradeModel.date.asc())
             .all()
         )
@@ -964,9 +1001,13 @@ async def get_trades_ftr_report(
     MFE/MAE use entry vs exit as a proxy when intraday extremes are not stored.
     """
     try:
+        connected = connected_exchange_names(db, current_user.id)
         rows: List[TradeModel] = (
             db.query(TradeModel)
-            .filter(TradeModel.user_id == current_user.id)
+            .filter(
+                TradeModel.user_id == current_user.id,
+                visible_trades_sqlalchemy_filter(connected),
+            )
             .order_by(TradeModel.date.asc())
             .all()
         )
@@ -1389,10 +1430,12 @@ async def export_trades(
     Export all trades to an Excel file.
     """
     try:
+        connected = connected_exchange_names(db, current_user.id)
         trades: List[TradeModel] = (
             db.query(TradeModel)
             .filter(
-                TradeModel.user_id == current_user.id
+                TradeModel.user_id == current_user.id,
+                visible_trades_sqlalchemy_filter(connected),
             )
             .order_by(TradeModel.date.desc())
             .all()

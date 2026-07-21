@@ -166,10 +166,10 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
       const jobId = credPayload?.connect_job_id as string | undefined;
       setStatusMessage('Keys saved. Syncing balance and trade history...');
       await fetchConnectedExchanges();
+      window.dispatchEvent(new CustomEvent('cryptelix:credentials-changed'));
+      onConnect();
       if (jobId) {
         await pollConnectStatus(jobId);
-      } else {
-        onConnect();
       }
       setSelectedBroker(null);
     } catch (error) {
@@ -246,6 +246,7 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
               },
             })
           );
+          window.dispatchEvent(new CustomEvent('cryptelix:credentials-changed'));
           onConnect();
           setTimeout(() => onClose(), 2500);
           return;
@@ -293,6 +294,12 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
       });
       setStatusMessage(`${selectedBrokerData.name} disconnected.`);
       setDisconnectConfirmOpen(false);
+      window.dispatchEvent(new CustomEvent('cryptelix:credentials-changed'));
+      window.dispatchEvent(
+        new CustomEvent('cryptelix:trades-synced', {
+          detail: { reason: 'disconnect' },
+        })
+      );
       onConnect();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Disconnect failed';
