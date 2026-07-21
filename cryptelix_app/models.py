@@ -378,6 +378,29 @@ class ChatMessage(Base):
 
 
 
+
+
+class Feedback(Base):
+    """Post-onboarding product survey (one row per user)."""
+
+    __tablename__ = "feedback"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    status = Column(String(32), nullable=False, default="not_offered")
+    q1 = Column(Integer, nullable=True)
+    q2 = Column(Integer, nullable=True)
+    q3 = Column(Integer, nullable=True)
+    comment = Column(Text, nullable=True)
+    skipped_at = Column(DateTime(timezone=True), nullable=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
 if __name__ == "__main__":
 
     Base.metadata.create_all(bind=engine)

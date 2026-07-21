@@ -418,9 +418,15 @@ export function DataBase() {
   const fetchTrades = useCallback(async () => {
     try {
       const res = await apiFetch('/api/v1/trades');
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.error('[Deal Base] Failed to load trades', res.status);
+        return;
+      }
       const data: ApiTrade[] = await res.json();
-      if (!Array.isArray(data)) return;
+      if (!Array.isArray(data)) {
+        console.error('[Deal Base] Unexpected trades payload', data);
+        return;
+      }
       const deals: Deal[] = data
         .map((t, i) => apiTradeToDeal(t, i, customColumns))
         .sort((a, b) => {
@@ -432,8 +438,8 @@ export function DataBase() {
         ...prev,
         deals,
       }));
-    } catch {
-      // Keep static fallback deals on error
+    } catch (err) {
+      console.error('[Deal Base] Error loading trades', err);
     }
   }, [customColumns]);
 

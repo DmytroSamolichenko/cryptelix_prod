@@ -1,7 +1,8 @@
 import { TrendingUp, TrendingDown } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { apiFetch } from '../lib/apiClient';
+import { useTradesSynced } from '../lib/useTradesSynced';
 
 interface TradesStatsPayload {
   total_net_profit: number;
@@ -34,27 +35,32 @@ export function KeyMetricsCards() {
   const [stats, setStats] = useState<TradesStatsPayload | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      try {
-        const res = await apiFetch('/api/v1/trades/stats');
-        if (!res.ok) {
-          console.error('Failed to fetch /api/v1/trades/stats', res.status);
-          setStats(null);
-          return;
-        }
-        const data = (await res.json()) as TradesStatsPayload;
-        setStats(data);
-      } catch (e) {
-        console.error('Error fetching trade stats', e);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch('/api/v1/trades/stats');
+      if (!res.ok) {
+        console.error('Failed to fetch /api/v1/trades/stats', res.status);
         setStats(null);
-      } finally {
-        setLoading(false);
+        return;
       }
-    };
-    void load();
+      const data = (await res.json()) as TradesStatsPayload;
+      setStats(data);
+    } catch (e) {
+      console.error('Error fetching trade stats', e);
+      setStats(null);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useTradesSynced(() => {
+    void load();
+  });
 
   const tnp = stats?.total_net_profit ?? 0;
   const tnpPositive = tnp > 0;
