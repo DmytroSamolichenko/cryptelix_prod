@@ -158,10 +158,10 @@ function App() {
           isWidgetsOpen={isWidgetsOpen}
         />
 
-        {/* Main Content Area */}
-        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        {/* Main Content Area — overflow only on canvas so floating controls' glow isn't clipped */}
+        <div className="relative flex min-h-0 flex-1">
           {/* Workspace - Constructor, Database, or Portfolio */}
-          <div className="flex-1 min-w-0">
+          <div className="relative min-w-0 flex-1 overflow-hidden">
             {currentView === 'constructor' ? (
               <DashboardCanvas
                 widgets={widgets}
@@ -191,64 +191,69 @@ function App() {
               <AiBot />
             </div>
           )}
-        </div>
 
-        {/* Constructor Bottom Menu */}
-        {currentView === 'constructor' && (
-          <div className="relative z-30 shrink-0 overflow-visible">
-          <ConstructorBottomMenu
-            onWidgetsToggle={() => setIsWidgetsOpen(!isWidgetsOpen)}
-            onBrushToggle={() => setIsBrushActive((active) => !active)}
-            isBrushActive={isBrushActive}
-            drawToolMode={drawToolMode}
-            onDrawToolModeChange={setDrawToolMode}
-            brushColor={brushColor}
-            onBrushColorChange={setBrushColor}
-            onTextFieldAdd={() => {
-              const newTextField = {
-                id: `text-${Date.now()}`,
-                type: 'text-field' as const,
-                title: 'Text',
-                position: { x: scalePx(100), y: scalePx(100) },
-                size: scaleSize(280, 120),
-                data: { text: '', html: '', fontSize: DEFAULT_FONT_SIZE },
-              };
-              handleAddWidget(newTextField);
-            }}
-            onAddWidget={(type) => {
-              // Add widget by type
-              const widgetTitles: Record<string, string> = {
-                'line-chart': 'Profit Trend',
-                'bar-chart': 'Wins vs Losses',
-                'pie-chart': 'Portfolio Mix',
-                'area-chart': 'Cumulative P&L',
-                'stats-card': 'Key Metrics',
-                'table': 'Full Trading Report',
-                'portfolio-widget': 'Portfolio Analytics',
-              };
-              const newWidget = {
-                id: `widget-${Date.now()}-${Math.random()}`,
-                type,
-                title: widgetTitles[type] || 'Widget',
-                position: { x: Math.floor(Math.random() * scalePx(400)) + scalePx(50), y: Math.floor(Math.random() * scalePx(200)) + scalePx(50) },
-                size: type === 'table'
-                  ? scaleSize(600, 500)
-                  : type === 'portfolio-widget'
-                  ? scaleSize(800, 600)
-                  : scaleSize(400, 320),
-              };
-              handleAddWidget(newWidget);
-            }}
-            canvases={canvases}
-            activeCanvasId={activeCanvasId}
-            onCanvasChange={setActiveCanvasId}
-            onCanvasAdd={addCanvas}
-            onCanvasRename={renameCanvas}
-            onCanvasDelete={deleteCanvas}
-            isWidgetsOpen={isWidgetsOpen}
-          />
-          </div>
-        )}
+          {/* Floating constructor tools — overlaid on canvas, no bar */}
+          {currentView === 'constructor' && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 overflow-visible pb-3">
+              <div className="pointer-events-auto overflow-visible">
+                <ConstructorBottomMenu
+                  onWidgetsToggle={() => setIsWidgetsOpen(!isWidgetsOpen)}
+                  onBrushToggle={() => setIsBrushActive((active) => !active)}
+                  isBrushActive={isBrushActive}
+                  drawToolMode={drawToolMode}
+                  onDrawToolModeChange={setDrawToolMode}
+                  brushColor={brushColor}
+                  onBrushColorChange={setBrushColor}
+                  onTextFieldAdd={() => {
+                    const newTextField = {
+                      id: `text-${Date.now()}`,
+                      type: 'text-field' as const,
+                      title: 'Text',
+                      position: { x: scalePx(100), y: scalePx(100) },
+                      size: scaleSize(280, 120),
+                      data: { text: '', html: '', fontSize: DEFAULT_FONT_SIZE },
+                    };
+                    handleAddWidget(newTextField);
+                  }}
+                  onAddWidget={(type) => {
+                    const widgetTitles: Record<string, string> = {
+                      'line-chart': 'Profit Trend',
+                      'bar-chart': 'Wins vs Losses',
+                      'pie-chart': 'Portfolio Mix',
+                      'area-chart': 'Cumulative P&L',
+                      'stats-card': 'Key Metrics',
+                      'table': 'Full Trading Report',
+                      'portfolio-widget': 'Portfolio Analytics',
+                    };
+                    const newWidget = {
+                      id: `widget-${Date.now()}-${Math.random()}`,
+                      type,
+                      title: widgetTitles[type] || 'Widget',
+                      position: {
+                        x: Math.floor(Math.random() * scalePx(400)) + scalePx(50),
+                        y: Math.floor(Math.random() * scalePx(200)) + scalePx(50),
+                      },
+                      size:
+                        type === 'table'
+                          ? scaleSize(600, 500)
+                          : type === 'portfolio-widget'
+                            ? scaleSize(800, 600)
+                            : scaleSize(400, 320),
+                    };
+                    handleAddWidget(newWidget);
+                  }}
+                  canvases={canvases}
+                  activeCanvasId={activeCanvasId}
+                  onCanvasChange={setActiveCanvasId}
+                  onCanvasAdd={addCanvas}
+                  onCanvasRename={renameCanvas}
+                  onCanvasDelete={deleteCanvas}
+                  isWidgetsOpen={isWidgetsOpen}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </DndProvider>
       )}
