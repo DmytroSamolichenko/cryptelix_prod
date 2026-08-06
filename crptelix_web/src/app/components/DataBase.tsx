@@ -219,7 +219,55 @@ interface ApiTrade {
   is_manual?: boolean;
   exchange_trade_id?: string | null;
   exchange_name?: string | null;
+  account_type?: string | null;
+  market_type?: string | null;
+  funding?: string | null;
+  net_pnl_ex_funding?: string | null;
+  leverage?: number | null;
+  margin_mode?: string | null;
+  liquidation_price?: string | null;
   custom_fields?: Record<string, unknown>;
+}
+
+/** Read-only futures-only columns, revealed by the Futures view toggle. */
+const FUTURES_COLUMN_IDS = [
+  'funding',
+  'netPnlExFunding',
+  'leverage',
+  'marginMode',
+  'liquidationPrice',
+] as const;
+
+const FUTURES_COLUMNS: Column[] = [
+  { id: 'funding', name: 'Funding', type: 'number', width: 130 },
+  { id: 'netPnlExFunding', name: 'Net (ex-fund)', type: 'number', width: 140 },
+];
+
+function isFuturesDisplayColumn(columnId: string): boolean {
+  return (FUTURES_COLUMN_IDS as readonly string[]).includes(columnId);
+}
+
+function marketTypeLabel(marketType: unknown): string | null {
+  const v = String(marketType ?? '').toLowerCase();
+  if (v === 'usdm') return 'USDT-M';
+  if (v === 'coinm') return 'COIN-M';
+  return null;
+}
+
+function marketBadgeClass(marketType: unknown): string {
+  const v = String(marketType ?? '').toLowerCase();
+  if (v === 'usdm') {
+    return 'text-green-400/90 bg-green-500/10 border-green-500/30';
+  }
+  return 'text-sky-400/90 bg-sky-500/10 border-sky-500/30';
+}
+
+function signedNumberDisplay(raw: string | null | undefined, decimals: number): string {
+  if (raw == null || raw === '') return '';
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return '';
+  const formatted = formatNumber(n, decimals);
+  return n > 0 ? `+${formatted}` : formatted;
 }
 
 /** Maps API snake_case → ApiTrade (PATCH/GET/POST responses). */
@@ -255,6 +303,16 @@ function normalizeServerTradeJson(raw: Record<string, unknown>): ApiTrade {
     exchange_trade_id:
       raw.exchange_trade_id != null ? String(raw.exchange_trade_id) : null,
     exchange_name: raw.exchange_name != null ? String(raw.exchange_name) : null,
+    account_type: raw.account_type != null ? String(raw.account_type) : null,
+    market_type: raw.market_type != null ? String(raw.market_type) : null,
+    funding: asStr(raw.funding),
+    net_pnl_ex_funding: asStr(raw.net_pnl_ex_funding),
+    leverage:
+      raw.leverage != null && raw.leverage !== ''
+        ? Number(raw.leverage)
+        : null,
+    margin_mode: raw.margin_mode != null ? String(raw.margin_mode) : null,
+    liquidation_price: asStr(raw.liquidation_price),
     custom_fields: (raw.custom_fields as Record<string, unknown>) ?? undefined,
   };
 }
@@ -302,6 +360,16 @@ function apiTradeToDeal(api: ApiTrade, index: number, customColumns: CustomColum
         : '',
     notes: api.notes ?? '',
     ai_report: isAiReportEmpty(api.ai_report) ? '' : String(api.ai_report),
+    accountType: api.account_type ?? 'spot',
+    marketType: api.market_type ?? null,
+    funding: signedNumberDisplay(api.funding, 4),
+    netPnlExFunding: signedNumberDisplay(api.net_pnl_ex_funding, 2),
+    leverage: api.leverage != null ? `${api.leverage}x` : '',
+    marginMode: api.margin_mode ?? '',
+    liquidationPrice:
+      api.liquidation_price != null && api.liquidation_price !== ''
+        ? formatNumber(Number(api.liquidation_price), 4)
+        : '',
   };
 
   if (api.custom_fields) {
@@ -357,6 +425,21 @@ export function DataBase() {
     startWidth: 0,
   });
   const [exporting, setExporting] = useState(false);
+  const [futuresView, setFuturesView] = useState(false);
+
+  const hasFuturesTrades = useMemo(
+    () => sheet.deals.some((d) => d.accountType === 'future'),
+    [sheet.deals]
+  );
+
+  const displayColumns = useMemo<Column[]>(() => {
+    if (!futuresView) return sheet.columns;
+    const cols = [...sheet.columns];
+    const commissionIdx = cols.findIndex((c) => c.id === 'commission');
+    const insertAt = commissionIdx >= 0 ? commissionIdx + 1 : cols.length;
+    cols.splice(insertAt, 0, ...FUTURES_COLUMNS);
+    return cols;
+  }, [futuresView, sheet.columns]);
 
   const handleExportTrades = useCallback(async () => {
     if (!sheet.deals.length || exporting) return;
@@ -784,6 +867,20 @@ export function DataBase() {
         <DealBaseSummaryBar deals={sheet.deals} className="min-w-0 flex-1" />
 
         <div className="flex shrink-0 items-center justify-end gap-2 self-end">
+          {hasFuturesTrades && (
+            <button
+              type="button"
+              onClick={() => setFuturesView((v) => !v)}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                futuresView
+                  ? 'border-yellow-500/40 bg-yellow-500/15 text-yellow-400'
+                  : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-800 hover:text-white'
+              }`}
+              title="Show futures-only columns (funding, net P&L ex-funding)"
+            >
+              Futures view
+            </button>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -853,7 +950,7 @@ export function DataBase() {
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 border-b border-zinc-800/80 bg-zinc-900/95 backdrop-blur-sm">
                 <tr>
-                  {activeSheet?.columns.map((column) => (
+                  {displayColumns.map((column) => (
                     <th
                       key={column.id}
                       className="px-0 py-0 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500"
@@ -873,13 +970,15 @@ export function DataBase() {
                           )}
                         </div>
                         <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1">
-                          <button
-                            onClick={() => deleteColumn(column.id)}
-                            className="text-zinc-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
-                            title="Delete column"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
+                          {!isFuturesDisplayColumn(column.id) && (
+                            <button
+                              onClick={() => deleteColumn(column.id)}
+                              className="text-zinc-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+                              title="Delete column"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
                           <div
                             onMouseDown={(e) =>
                               handleColumnResizeMouseDown(e, column.id)
@@ -901,7 +1000,7 @@ export function DataBase() {
                       rowIndex % 2 === 0 ? 'bg-zinc-950/20' : 'bg-transparent'
                     }`}
                   >
-                    {activeSheet.columns.map((column) => (
+                    {displayColumns.map((column) => (
                       <td
                         key={column.id}
                         className={`px-0 py-0 ${column.id === 'notes' || column.id === 'ai_report' ? 'align-top' : 'align-middle'}`}
@@ -910,7 +1009,16 @@ export function DataBase() {
                           minWidth: column.id === 'type' ? 100 : column.id === 'ai_report' ? 200 : 80,
                         }}
                       >
-                        {column.id === 'notes' ? (
+                        {isFuturesDisplayColumn(column.id) ? (
+                          <div
+                            className={getCellClassName(
+                              String(deal[column.id] ?? ''),
+                              column.type
+                            )}
+                          >
+                            {String(deal[column.id] ?? '')}
+                          </div>
+                        ) : column.id === 'notes' ? (
                           editingNote.dealId === deal.id ? (
                             <textarea
                               value={editingNote.draft}
@@ -1058,6 +1166,15 @@ export function DataBase() {
                                   </span>
                                 );
                               })()}
+                              {marketTypeLabel(deal.marketType) && (
+                                <span
+                                  className={`shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${marketBadgeClass(
+                                    deal.marketType
+                                  )}`}
+                                >
+                                  {marketTypeLabel(deal.marketType)}
+                                </span>
+                              )}
                             </div>
                           ) : (
                             <div

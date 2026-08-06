@@ -45,9 +45,21 @@ from auth import (
 )
 from database import SessionLocal, get_db
 from binance_connect_service import run_binance_connect_pipeline
-from exchange_service import ApiKeyPermissionError, assert_binance_key_is_read_only
+from exchange_service import (
+    ApiKeyPermissionError,
+    ExchangeService,
+    assert_binance_key_is_read_only,
+)
+from futures_sync_service import backfill_futures_trades
+from futures_aggregator import process_all_unprocessed_fills as process_futures_fills
+from futures_ws_listener import get_futures_ws_status, start_futures_ws
 from binance_ws_listener import get_ws_status, stop_binance_ws
-from db_migrations import ensure_balance_spot_constraints, ensure_multi_user_constraints
+from db_migrations import (
+    ensure_balance_spot_constraints,
+    ensure_futures_tables,
+    ensure_multi_user_constraints,
+    ensure_trades_futures_columns,
+)
 from models import BalanceSpotTransaction as BalanceSpotTransactionModel
 from models import ChatMessage as ChatMessageModel  # noqa: F401 — register ORM mapper
 from models import APIKey as APIKeyModel
@@ -143,13 +155,27 @@ def _parse_cors_origins() -> tuple[list[str], str | None]:
 def _internal_error(exc: Exception) -> HTTPException:
     """Log the full error server-side, return a generic message to the client.
 
-    Avoids leaking DB schema, stack traces, or internal details (H2).
+    Avoids leaking DB schema, stack traces, or internal details in production
+    (H2). Outside production the real error is surfaced to speed up local
+    debugging.
     """
     logger.exception("Internal server error: %s", type(exc).__name__)
+    detail = (
+        "Internal server error"
+        if IS_PRODUCTION
+        else f"[dev] {type(exc).__name__}: {exc}"
+    )
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail="Internal server error",
+        detail=detail,
     )
+
+
+def _job_error_detail(exc: Exception, fallback: str) -> str:
+    """Generic error string in production, real detail for local debugging (H2)."""
+    if IS_PRODUCTION:
+        return fallback
+    return f"[dev] {type(exc).__name__}: {exc}"
 
 
 @app.on_event("startup")
@@ -157,6 +183,8 @@ def _apply_schema_patches() -> None:
     try:
         ensure_balance_spot_constraints()
         ensure_multi_user_constraints()
+        ensure_futures_tables()
+        ensure_trades_futures_columns()
     except Exception as exc:
         print(f"[WARN] Schema patch skipped: {exc}")
 
@@ -405,6 +433,20 @@ def _trade_to_dict(trade: TradeModel) -> Dict[str, Any]:
         "exchange_trade_id": trade.exchange_trade_id,
         "exchange_name": trade.exchange_name,
         "account_type": trade.account_type or "spot",
+        "market_type": trade.market_type,
+        "funding": str(trade.funding) if trade.funding is not None else None,
+        "net_pnl_ex_funding": (
+            str(trade.net_pnl_ex_funding)
+            if trade.net_pnl_ex_funding is not None
+            else None
+        ),
+        "leverage": trade.leverage,
+        "margin_mode": trade.margin_mode,
+        "liquidation_price": (
+            str(trade.liquidation_price)
+            if trade.liquidation_price is not None
+            else None
+        ),
         "custom_fields": trade.custom_fields or {},
     }
 
@@ -424,11 +466,13 @@ def _normalize_exchange_name(name: str) -> str:
 
 def _normalize_account_type(value: str | None) -> str:
     account_type = (value or "spot").strip().lower()
-    allowed = {"spot"}
+    if account_type == "futures":
+        account_type = "future"
+    allowed = {"spot", "future"}
     if account_type not in allowed:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported account_type. For now only 'spot' is available.",
+            detail="Unsupported account_type. Supported: 'spot', 'future'.",
         )
     return account_type
 
@@ -652,6 +696,47 @@ async def start_binance_connect(
     }
 
 
+@app.post("/api/v1/exchanges/binance/futures/connect")
+async def start_binance_futures_connect(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Import raw USDT-M futures fills using the already-stored Binance key."""
+    cred_exists = (
+        db.query(APIKeyModel)
+        .filter(
+            APIKeyModel.user_id == current_user.id,
+            APIKeyModel.exchange_name == "binance",
+        )
+        .first()
+    )
+    if cred_exists is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No API credentials found for exchange 'binance'.",
+        )
+
+    job_id = str(uuid4())
+    _CONNECT_JOBS[job_id] = {
+        "user_id": current_user.id,
+        "status": "queued",
+        "phase": "queued",
+        "exchange_name": "binance",
+        "account_type": "future",
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "phases": {},
+        "error": None,
+    }
+    asyncio.create_task(_run_binance_futures_job(job_id=job_id))
+    return {
+        "status": "accepted",
+        "job_id": job_id,
+        "connect_job_id": job_id,
+        "exchange_name": "binance",
+        "account_type": "future",
+    }
+
+
 @app.get("/api/v1/exchanges/binance/connect/{job_id}")
 async def get_binance_connect_status(
     job_id: str,
@@ -665,6 +750,13 @@ async def get_binance_ws_status(
     current_user: UserModel = Depends(get_current_user),
 ):
     return get_ws_status(current_user.id, "spot")
+
+
+@app.get("/api/v1/exchanges/binance/futures/ws-status")
+async def get_binance_futures_ws_status(
+    current_user: UserModel = Depends(get_current_user),
+):
+    return get_futures_ws_status(current_user.id)
 
 
 @app.get("/api/v1/exchanges/binance/portfolio")
@@ -759,16 +851,75 @@ async def _run_binance_connect_job(job_id: str, account_type: str) -> None:
         else:
             job_update["ws_status"] = "connected"
         _CONNECT_JOBS[job_id].update(job_update)
-    except Exception:
+    except Exception as exc:
         logger.exception("Binance connect job %s failed", job_id)
         _CONNECT_JOBS[job_id].update(
             {
                 "status": "failed",
                 "phase": "failed",
-                "error": _CONNECT_JOB_PUBLIC_ERROR,
+                "error": _job_error_detail(exc, _CONNECT_JOB_PUBLIC_ERROR),
                 "finished_at": datetime.utcnow().isoformat() + "Z",
             }
         )
+
+
+async def _run_binance_futures_job(job_id: str) -> None:
+    """Import raw USDT-M futures fills for the job's user (no WAC)."""
+    job = _CONNECT_JOBS.get(job_id) or {}
+    user_id = int(job.get("user_id") or 0)
+    db = SessionLocal()
+    try:
+        _CONNECT_JOBS[job_id]["status"] = "running"
+        _CONNECT_JOBS[job_id]["phase"] = "futures"
+        _CONNECT_JOBS[job_id]["phases"]["futures"] = {"status": "running"}
+
+        service = ExchangeService.from_db_credentials("binance", db, user_id=user_id)
+        try:
+            service.enable_futures_mode()
+            await service.client.load_markets()
+            await service._prepare_client_time()
+            stats = await backfill_futures_trades(db, service.client, user_id)
+        finally:
+            await service.close()
+
+        # Aggregate raw fills into closed trades (flat-to-flat, long + short).
+        agg_stats = process_futures_fills(db, user_id)
+        stats = {**stats, **agg_stats}
+
+        # Start the live futures user-data streams (USDT-M + COIN-M). Best-effort:
+        # the REST import above already succeeded, so a WS failure must not fail
+        # the whole job.
+        try:
+            await start_futures_ws(user_id)
+            stats["ws_status"] = "connected"
+        except Exception as ws_exc:
+            logger.warning("Futures WS start failed for user %s: %s", user_id, ws_exc)
+            stats["ws_status"] = "failed"
+
+        _CONNECT_JOBS[job_id]["phases"]["futures"] = {"status": "done", **stats}
+        _CONNECT_JOBS[job_id].update(
+            {
+                "status": "done",
+                "phase": "done",
+                "trades_created": stats.get("trades_created", 0),
+                "fills_created": stats.get("fills_created", 0),
+                "symbols_synced": stats.get("symbols_synced", 0),
+                "ws_status": stats.get("ws_status", "unknown"),
+                "finished_at": datetime.utcnow().isoformat() + "Z",
+            }
+        )
+    except Exception as exc:
+        logger.exception("Binance futures job %s failed", job_id)
+        _CONNECT_JOBS[job_id].update(
+            {
+                "status": "failed",
+                "phase": "failed",
+                "error": _job_error_detail(exc, _CONNECT_JOB_PUBLIC_ERROR),
+                "finished_at": datetime.utcnow().isoformat() + "Z",
+            }
+        )
+    finally:
+        db.close()
 
 
 @app.post("/api/v1/exchanges/binance/sync-trades")
