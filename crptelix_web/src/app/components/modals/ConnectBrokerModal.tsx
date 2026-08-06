@@ -105,6 +105,7 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
     Record<string, { apiKey: string; apiSecret: string }>
   >({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSyncingFutures, setIsSyncingFutures] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -186,6 +187,7 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
     wac: 'Building closed trades',
     reconcile: 'Reconciling positions',
     websocket: 'Starting live connection',
+    futures: 'Importing futures trades',
     done: 'Complete',
   };
 
@@ -249,6 +251,31 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
   const isSelectedConnected =
     selectedBrokerData?.exchangeId != null &&
     connectedExchangeIds.has(selectedBrokerData.exchangeId);
+
+  const handleSyncFutures = async () => {
+    if (selectedBrokerData?.exchangeId !== 'binance') return;
+    setIsSyncingFutures(true);
+    setStatusMessage('Starting futures import...');
+    try {
+      const res = await apiFetch('/api/v1/exchanges/binance/futures/connect', {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const errorBody = await res.text();
+        throw new Error(errorBody || 'Failed to start futures import');
+      }
+      const payload = await res.json();
+      const jobId = (payload?.connect_job_id ?? payload?.job_id) as string | undefined;
+      if (jobId) {
+        await pollConnectStatus(jobId);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Futures import failed';
+      setStatusMessage(`Error: ${message}`);
+    } finally {
+      setIsSyncingFutures(false);
+    }
+  };
 
   const handleDisconnect = async () => {
     if (!selectedBrokerData?.exchangeId) return;
@@ -434,6 +461,18 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
                         Your account syncs automatically. API keys are stored securely.
                       </p>
                     </div>
+
+                    {selectedBrokerData?.exchangeId === 'binance' && (
+                      <button
+                        type="button"
+                        onClick={() => void handleSyncFutures()}
+                        disabled={isSyncingFutures}
+                        className="w-full px-6 py-3 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 font-semibold rounded-lg transition-all disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        <TrendingUp className="w-4 h-4" />
+                        {isSyncingFutures ? 'Importing futures...' : 'Sync Futures trades'}
+                      </button>
+                    )}
 
                     <button
                       type="button"

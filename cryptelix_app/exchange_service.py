@@ -116,6 +116,62 @@ def _flag_is_true(value: object) -> bool:
     return False
 
 
+async def probe_binance_futures_access(api_key: str, api_secret: str) -> dict:
+    """Confirm whether a key can *read* USDT-M Futures (fapi) without trading perms.
+
+    Binance's `apiRestrictions` only exposes a single `enableFutures` flag, so the
+    only reliable way to know if a read-only key can query futures is to try a
+    signed fapi read call. Returns a diagnostic dict; never raises.
+
+    - ok=True  -> the key reads futures (account + user trades).
+    - ok=False -> `error` holds the ccxt error (e.g. code -2015 = missing perms).
+    """
+    client = ccxt_async.binance(
+        {
+            "apiKey": api_key,
+            "secret": api_secret,
+            "enableRateLimit": True,
+            "options": {
+                "defaultType": "future",
+                "adjustForTimeDifference": True,
+                "recvWindow": 15000,
+            },
+        }
+    )
+    result: dict = {"ok": False, "error": None, "balance_read": False, "trades_read": False}
+    try:
+        try:
+            await client.load_time_difference()
+        except Exception:
+            pass
+        try:
+            balance = await client.fetch_balance()
+            result["balance_read"] = True
+            total = balance.get("total", {}) if isinstance(balance, dict) else {}
+            result["non_zero_assets"] = sorted(
+                a for a, v in total.items() if v and float(v) != 0.0
+            )
+        except ccxt.BaseError as exc:
+            result["error"] = f"{type(exc).__name__}: {exc}"
+            return result
+        # A futures userTrades read requires a symbol; probe one liquid market.
+        try:
+            await client.load_markets()
+            trades = await client.fetch_my_trades(symbol="BTC/USDT", limit=1)
+            result["trades_read"] = True
+            result["sample_trade_count"] = len(trades or [])
+        except ccxt.BaseError as exc:
+            # Balance read alone already proves fapi read access.
+            result["trades_error"] = f"{type(exc).__name__}: {exc}"
+        result["ok"] = result["balance_read"]
+        return result
+    finally:
+        try:
+            await client.close()
+        except Exception:
+            pass
+
+
 class ExchangeService:
     """
     Asynchronous, multi-exchange service built on ccxt.async_support.
@@ -192,6 +248,18 @@ class ExchangeService:
             api_key=decrypted_key,
             api_secret=decrypted_secret,
         )
+
+    def enable_futures_mode(self) -> None:
+        """Switch the ccxt client to USDT-M Futures (fapi) endpoints.
+
+        ccxt keys futures behaviour off `options.defaultType`; setting it to
+        'future' routes fetch_balance / fetch_my_trades / income to fapi.
+        """
+        options = getattr(self.client, "options", None)
+        if isinstance(options, dict):
+            options["defaultType"] = "future"
+        else:  # pragma: no cover - ccxt always provides an options dict
+            self.client.options = {"defaultType": "future"}
 
     async def close(self) -> None:
         await self.client.close()
