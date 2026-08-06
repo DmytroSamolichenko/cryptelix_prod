@@ -66,12 +66,27 @@ export function TopBar({
     void refreshConnectionStatus();
   }, [refreshConnectionStatus]);
 
+  useEffect(() => {
+    const onCredentialsChanged = () => {
+      void refreshConnectionStatus();
+    };
+    window.addEventListener('cryptelix:credentials-changed', onCredentialsChanged);
+    window.addEventListener('cryptelix:trades-synced', onCredentialsChanged);
+    return () => {
+      window.removeEventListener('cryptelix:credentials-changed', onCredentialsChanged);
+      window.removeEventListener('cryptelix:trades-synced', onCredentialsChanged);
+    };
+  }, [refreshConnectionStatus]);
+
   const openModal = (type: 'broker' | 'tradingView') => {
     setModals((prev) => ({ ...prev, [type]: true }));
   };
 
   const closeModal = (type: 'broker' | 'tradingView') => {
     setModals((prev) => ({ ...prev, [type]: false }));
+    if (type === 'broker') {
+      void refreshConnectionStatus();
+    }
   };
 
   const handleBrokerConnect = () => {

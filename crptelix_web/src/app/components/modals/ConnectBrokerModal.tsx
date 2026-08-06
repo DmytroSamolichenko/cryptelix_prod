@@ -167,10 +167,10 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
       const jobId = credPayload?.connect_job_id as string | undefined;
       setStatusMessage('Keys saved. Syncing balance and trade history...');
       await fetchConnectedExchanges();
+      window.dispatchEvent(new CustomEvent('cryptelix:credentials-changed'));
+      onConnect();
       if (jobId) {
         await pollConnectStatus(jobId);
-      } else {
-        onConnect();
       }
       setSelectedBroker(null);
     } catch (error) {
@@ -207,11 +207,28 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
         if (job.status === 'done') {
           const orphans = Array.isArray(job.orphans) ? job.orphans.length : 0;
           const tradesCreated = Number(job.trades_created ?? 0);
+          let totalInDealBase: number | null = null;
+          try {
+            const tradesRes = await apiFetch('/api/v1/trades');
+            if (tradesRes.ok) {
+              const trades = await tradesRes.json();
+              if (Array.isArray(trades)) totalInDealBase = trades.length;
+            }
+          } catch {
+            // non-critical — status message still works without the count
+          }
+
           const parts: string[] = [];
           if (tradesCreated > 0) {
             parts.push(
               `${tradesCreated} closed trade${tradesCreated === 1 ? '' : 's'} added to Deal Base`
             );
+          } else if (totalInDealBase != null && totalInDealBase > 0) {
+            parts.push(
+              `Sync complete — ${totalInDealBase} trade${totalInDealBase === 1 ? '' : 's'} already in Deal Base`
+            );
+          } else if (totalInDealBase === 0) {
+            parts.push('Sync complete, but Deal Base is still empty (no closed spot trades found)');
           } else {
             parts.push('Sync complete (no new closed trades)');
           }
@@ -225,9 +242,13 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
           setStatusMessage(`Connected. ${parts.join('. ')}.`);
           window.dispatchEvent(
             new CustomEvent('cryptelix:trades-synced', {
-              detail: { trades_created: tradesCreated },
+              detail: {
+                trades_created: tradesCreated,
+                total_trades: totalInDealBase,
+              },
             })
           );
+          window.dispatchEvent(new CustomEvent('cryptelix:credentials-changed'));
           onConnect();
           setTimeout(() => onClose(), 2500);
           return;
@@ -300,6 +321,12 @@ export function ConnectBrokerModal({ isOpen, onClose, onConnect }: ConnectBroker
       });
       setStatusMessage(`${selectedBrokerData.name} disconnected.`);
       setDisconnectConfirmOpen(false);
+      window.dispatchEvent(new CustomEvent('cryptelix:credentials-changed'));
+      window.dispatchEvent(
+        new CustomEvent('cryptelix:trades-synced', {
+          detail: { reason: 'disconnect' },
+        })
+      );
       onConnect();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Disconnect failed';

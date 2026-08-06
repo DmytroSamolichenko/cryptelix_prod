@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { 
   PieChart, 
   Pie, 
@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { apiFetch } from '../lib/apiClient';
+import { useTradesSynced } from '../lib/useTradesSynced';
 
 // Time period type
 type TimePeriod = '24h' | '7d' | '1m' | '3m' | '1y' | 'All';
@@ -369,28 +370,30 @@ export function PortfolioWidget() {
 
   const [currentEquity, setCurrentEquity] = useState<number | null>(null);
 
-  useEffect(() => {
-    const fetchSummary = async () => {
-      try {
-        const response = await apiFetch('/api/v1/summary');
-        if (!response.ok) {
-          console.error('Failed to fetch financial summary', response.statusText);
-          return;
-        }
-        const data = await response.json();
-        if (data && typeof data.current_equity !== 'undefined') {
-          const equityNumber = Number(data.current_equity);
-          if (!Number.isNaN(equityNumber)) {
-            setCurrentEquity(equityNumber);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching financial summary', error);
+  const fetchSummary = useCallback(async () => {
+    try {
+      const response = await apiFetch('/api/v1/summary');
+      if (!response.ok) {
+        console.error('Failed to fetch financial summary', response.statusText);
+        return;
       }
-    };
-
-    fetchSummary();
+      const data = await response.json();
+      if (data && typeof data.current_equity !== 'undefined') {
+        const equityNumber = Number(data.current_equity);
+        if (!Number.isNaN(equityNumber)) {
+          setCurrentEquity(equityNumber);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching financial summary', error);
+    }
   }, []);
+
+  useEffect(() => {
+    void fetchSummary();
+  }, [fetchSummary]);
+
+  useTradesSynced(fetchSummary);
 
   const toggleSection = (section: 'general' | 'exchanges' | 'wallets') => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));

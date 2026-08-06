@@ -8,6 +8,7 @@ import { Widget } from './components/DashboardWidget';
 import { TopBar } from './components/TopBar';
 import { DataBase } from './components/DataBase';
 import { ConstructorBottomMenu } from './components/ConstructorBottomMenu';
+import { FeedbackSurveyHost } from './components/FeedbackSurveyHost';
 import { loadConstructorState, saveConstructorState } from './lib/dashboardStorage';
 import { DEFAULT_FONT_SIZE } from './components/CanvasTextElement';
 import { scalePx, scaleSize } from './lib/uiScale';
@@ -145,6 +146,7 @@ function App() {
       {(user, logout) => (
     <DndProvider backend={HTML5Backend}>
       <div className="flex h-screen min-h-0 flex-col bg-black">
+        <FeedbackSurveyHost userId={user.id} />
         {/* Top Bar */}
         <TopBar
           userEmail={user.email}

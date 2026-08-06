@@ -31,6 +31,10 @@ from sqlalchemy.orm import Session
 from analytics_service import get_user_financial_summary
 from ai_service import AIAnalysisError, analyze_trade_sync
 import chat_service as chat_svc
+from trade_visibility import (
+    connected_exchange_names,
+    visible_trades_sqlalchemy_filter,
+)
 from auth import (
     activate_user,
     check_email_status,
@@ -61,6 +65,7 @@ from models import ChatMessage as ChatMessageModel  # noqa: F401 — register OR
 from models import APIKey as APIKeyModel
 from models import BinanceWs as BinanceWsModel
 from models import ChatSession as ChatSessionModel
+from models import Feedback as FeedbackModel  # noqa: F401 — register ORM mapper
 from models import PairInventory as PairInventoryModel  # noqa: F401
 from models import Trade as TradeModel
 from models import User as UserModel
@@ -73,12 +78,15 @@ from schemas import (
     CheckEmailResponse,
     ExchangeCredentialsUpsertRequest,
     ExchangeSyncTradesRequest,
+    FeedbackStatusResponse,
+    FeedbackSubmitRequest,
     TradeCreate,
     TradeUpdate,
     Trade as TradeSchema,
     UserPublic,
 )
 from security import encrypt_data
+import feedback_service as feedback_svc
 
 
 logger = logging.getLogger("cryptelix")
@@ -298,11 +306,16 @@ async def get_profit_trend(
             detail=f"period must be one of: {', '.join(sorted(allowed))}",
         )
 
+    connected = connected_exchange_names(db, user_id)
+
     if period == "trades":
         try:
             rows: List[TradeModel] = (
                 db.query(TradeModel)
-                .filter(TradeModel.user_id == user_id)
+                .filter(
+                    TradeModel.user_id == user_id,
+                    visible_trades_sqlalchemy_filter(connected),
+                )
                 .order_by(TradeModel.date.asc())
                 .all()
             )
@@ -326,12 +339,32 @@ async def get_profit_trend(
         return out
 
     trunc_sql = _PROFIT_TREND_PERIOD_TRUNC[period]
+    # Hide exchange trades when that exchange API key is disconnected.
+    if connected:
+        exchange_list = ", ".join(f"'{name}'" for name in sorted(connected))
+        visibility_sql = f"""
+            AND (
+                COALESCE(is_manual, false) = true
+                OR exchange_name IS NULL
+                OR TRIM(exchange_name) = ''
+                OR LOWER(TRIM(exchange_name)) IN ({exchange_list})
+            )
+        """
+    else:
+        visibility_sql = """
+            AND (
+                COALESCE(is_manual, false) = true
+                OR exchange_name IS NULL
+                OR TRIM(exchange_name) = ''
+            )
+        """
     sql = text(
         f"""
         SELECT date_trunc('{trunc_sql}', date) AS bucket,
                SUM(COALESCE(pnl, 0) - COALESCE(commission, 0)) AS period_net
         FROM trades
         WHERE user_id = :user_id
+        {visibility_sql}
         GROUP BY 1
         ORDER BY 1
         """
@@ -539,6 +572,50 @@ async def get_exchange_credentials_status(
         "connected_exchanges": sorted(connected),
         "binance_connected": "binance" in connected,
     }
+
+
+@app.get("/api/v1/feedback/status", response_model=FeedbackStatusResponse)
+def get_feedback_status(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    # The row is created on first status poll after login — the active-usage
+    # countdown starts from app entry, not from connecting an API key.
+    try:
+        feedback_svc.ensure_feedback_row(db, current_user.id)
+    except Exception as exc:
+        logger.exception(
+            "Failed to ensure feedback row for user %s: %s", current_user.id, exc
+        )
+    return feedback_svc.build_status_payload(db, current_user.id)
+
+
+@app.post("/api/v1/feedback/skip", response_model=FeedbackStatusResponse)
+@limiter.limit("10/minute")
+def post_feedback_skip(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    return feedback_svc.skip_feedback(db, current_user.id)
+
+
+@app.post("/api/v1/feedback/submit")
+@limiter.limit("10/minute")
+def post_feedback_submit(
+    request: Request,
+    body: FeedbackSubmitRequest,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    return feedback_svc.submit_feedback(
+        db,
+        current_user.id,
+        q1=body.q1,
+        q2=body.q2,
+        q3=body.q3,
+        comment=body.comment,
+    )
 
 
 @app.delete("/api/v1/exchanges/credentials/{exchange_name}")
@@ -874,10 +951,12 @@ async def get_trades(
     Return all trades as a list of objects with date, pair, type, entry, exit, quantity, pnl, commission.
     """
     try:
+        connected = connected_exchange_names(db, current_user.id)
         trades: List[TradeModel] = (
             db.query(TradeModel)
             .filter(
-                TradeModel.user_id == current_user.id
+                TradeModel.user_id == current_user.id,
+                visible_trades_sqlalchemy_filter(connected),
             )
             .order_by(TradeModel.date.desc())
             .all()
@@ -922,12 +1001,14 @@ async def get_trades_wvl(
     end_exclusive = datetime.combine(start_date + timedelta(days=7), time.min)
 
     try:
+        connected = connected_exchange_names(db, current_user.id)
         rows: List[TradeModel] = (
             db.query(TradeModel)
             .filter(
                 TradeModel.user_id == current_user.id,
                 TradeModel.date >= start_dt,
                 TradeModel.date < end_exclusive,
+                visible_trades_sqlalchemy_filter(connected),
             )
             .all()
         )
@@ -989,9 +1070,13 @@ async def get_trades_stats(
     Key Metrics / Stats for dashboard: TNP, profit factor, trade counts, max drawdown, etc.
     """
     try:
+        connected = connected_exchange_names(db, current_user.id)
         rows: List[TradeModel] = (
             db.query(TradeModel)
-            .filter(TradeModel.user_id == current_user.id)
+            .filter(
+                TradeModel.user_id == current_user.id,
+                visible_trades_sqlalchemy_filter(connected),
+            )
             .order_by(TradeModel.date.asc())
             .all()
         )
@@ -1067,9 +1152,13 @@ async def get_trades_ftr_report(
     MFE/MAE use entry vs exit as a proxy when intraday extremes are not stored.
     """
     try:
+        connected = connected_exchange_names(db, current_user.id)
         rows: List[TradeModel] = (
             db.query(TradeModel)
-            .filter(TradeModel.user_id == current_user.id)
+            .filter(
+                TradeModel.user_id == current_user.id,
+                visible_trades_sqlalchemy_filter(connected),
+            )
             .order_by(TradeModel.date.asc())
             .all()
         )
@@ -1492,10 +1581,12 @@ async def export_trades(
     Export all trades to an Excel file.
     """
     try:
+        connected = connected_exchange_names(db, current_user.id)
         trades: List[TradeModel] = (
             db.query(TradeModel)
             .filter(
-                TradeModel.user_id == current_user.id
+                TradeModel.user_id == current_user.id,
+                visible_trades_sqlalchemy_filter(connected),
             )
             .order_by(TradeModel.date.desc())
             .all()

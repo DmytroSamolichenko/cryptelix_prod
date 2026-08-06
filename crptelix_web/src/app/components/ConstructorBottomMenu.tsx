@@ -78,7 +78,7 @@ export function ConstructorBottomMenu({
   };
 
   return (
-    <div className="relative z-30 overflow-visible border-t border-zinc-800/50 bg-zinc-950/80 backdrop-blur-md">
+    <div className="relative z-30 overflow-visible">
       <div className="flex flex-col gap-2 overflow-visible px-2 py-2 sm:min-h-[54px] sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:overflow-visible sm:px-3 sm:py-0">
         {/* Tools — top row on mobile, centered on desktop */}
         <div className="order-1 flex shrink-0 items-center justify-center gap-2 sm:absolute sm:left-1/2 sm:top-1/2 sm:z-10 sm:-translate-x-1/2 sm:-translate-y-1/2">

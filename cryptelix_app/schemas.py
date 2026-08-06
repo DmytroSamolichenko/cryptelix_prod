@@ -122,3 +122,23 @@ class CheckEmailResponse(BaseModel):
     status: str
     email: str
 
+
+class FeedbackStatusResponse(BaseModel):
+    has_row: bool
+    status: str | None = None
+    created_at: str | None = None
+    skipped_at: str | None = None
+    force: bool = False
+    can_offer: bool = False
+    required_active_ms: int
+    skip_cooldown_seconds: int
+
+
+class FeedbackSubmitRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    q1: int = Field(..., ge=0, le=2)
+    q2: int = Field(..., ge=0, le=2)
+    q3: int = Field(..., ge=0, le=2)
+    comment: str | None = Field(default=None, max_length=4000)
+

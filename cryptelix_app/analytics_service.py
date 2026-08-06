@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal
 from models import Trade
+from trade_visibility import connected_exchange_names, visible_trades_sqlalchemy_filter
 
 
 DECIMAL_ZERO = Decimal("0")
@@ -43,11 +44,16 @@ def get_user_financial_summary(
 
     Optional start_date limits trades by the `date` column (closed_at is unused).
     Legacy response fields start_balance and net_transfers are always zero.
+    Exchange-synced trades are included only while that exchange API key is connected.
     """
+    connected = connected_exchange_names(db, user_id)
     trades_query = db.query(
         func.coalesce(func.sum(Trade.pnl), 0),
         func.coalesce(func.sum(Trade.commission), 0),
-    ).filter(Trade.user_id == user_id)
+    ).filter(
+        Trade.user_id == user_id,
+        visible_trades_sqlalchemy_filter(connected),
+    )
 
     if start_date is not None:
         trades_query = trades_query.filter(Trade.date >= start_date)

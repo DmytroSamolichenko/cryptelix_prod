@@ -12,11 +12,12 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from models import ChatMessage as ChatMessageModel
 from models import ChatSession as ChatSessionModel
+from models import Trade as TradeModel
+from trade_visibility import connected_exchange_names, visible_trades_sqlalchemy_filter
 
 _ENV_FILE = (Path(__file__).resolve().parent / ".env").resolve()
 load_dotenv(_ENV_FILE, override=True)
@@ -151,22 +152,37 @@ def fetch_last_trades_raw(
     db: Session, user_id: int, limit: int = 10
 ) -> list[Mapping[str, Any]]:
     """
-    Last rows from public.trades for this user.
+    Last rows from public.trades for this user (visible with current API keys only).
     Uses column `date` for ordering (Cryptelix schema); there is no created_at on trades.
     """
-    result = db.execute(
-        text(
-            """
-            SELECT *
-            FROM public.trades
-            WHERE user_id = :uid
-            ORDER BY date DESC NULLS LAST
-            LIMIT :lim
-            """
-        ),
-        {"uid": user_id, "lim": limit},
+    connected = connected_exchange_names(db, user_id)
+    rows = (
+        db.query(TradeModel)
+        .filter(
+            TradeModel.user_id == user_id,
+            visible_trades_sqlalchemy_filter(connected),
+        )
+        .order_by(TradeModel.date.desc().nullslast())
+        .limit(limit)
+        .all()
     )
-    return list(result.mappings().all())
+    out: list[Mapping[str, Any]] = []
+    for t in rows:
+        out.append(
+            {
+                "id": t.id,
+                "date": t.date,
+                "pair": t.pair,
+                "side": t.side,
+                "entry_price": t.entry_price,
+                "exit_price": t.exit_price,
+                "quantity": t.quantity,
+                "pnl": t.pnl,
+                "commission": t.commission,
+                "notes": t.notes,
+            }
+        )
+    return out
 
 
 def build_trades_context_block(db: Session, user_id: int) -> str:

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import {
   Area,
   CartesianGrid,
@@ -21,6 +21,7 @@ type TrendPoint = {
 };
 
 import { apiFetch } from '../lib/apiClient';
+import { useTradesSynced } from '../lib/useTradesSynced';
 
 const TIME_SCALE_BUTTONS: { key: ProfitTrendTimeScale; label: string }[] = [
   { key: 'trades', label: 'Trades' },
@@ -189,40 +190,42 @@ export function ProfitTrendWidget() {
   const posFillId = `pt-pos-${uid}`;
   const negFillId = `pt-neg-${uid}`;
 
-  useEffect(() => {
+  const fetchProfitTrend = useCallback(async () => {
     const cleanDateLabel = (value: unknown, fallback: string) => {
       if (!value) return fallback;
       const text = String(value);
       return text.includes('T') ? text.split('T')[0] : text;
     };
 
-    const fetchProfitTrend = async () => {
-      setLoading(true);
-      try {
-        const response = await apiFetch(
-          `/api/metrics/profit-trend?period=${encodeURIComponent(period)}`
-        );
-        if (!response.ok) throw new Error(`Failed to fetch profit trend: ${response.status}`);
+    setLoading(true);
+    try {
+      const response = await apiFetch(
+        `/api/metrics/profit-trend?period=${encodeURIComponent(period)}`
+      );
+      if (!response.ok) throw new Error(`Failed to fetch profit trend: ${response.status}`);
 
-        const payload = await response.json();
-        const raw = (Array.isArray(payload) ? payload : [])
-          .map((d: Record<string, unknown>, index: number) => ({
-            date: cleanDateLabel(d.date, `Point ${index + 1}`),
-            balance: parseFloat(String(d.balance ?? '')),
-          }))
-          .filter((d) => Number.isFinite(d.balance));
+      const payload = await response.json();
+      const raw = (Array.isArray(payload) ? payload : [])
+        .map((d: Record<string, unknown>, index: number) => ({
+          date: cleanDateLabel(d.date, `Point ${index + 1}`),
+          balance: parseFloat(String(d.balance ?? '')),
+        }))
+        .filter((d) => Number.isFinite(d.balance));
 
-        setData(enrichTrendData(raw));
-      } catch (error) {
-        console.error('Failed to load /api/metrics/profit-trend', error);
-        setData([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void fetchProfitTrend();
+      setData(enrichTrendData(raw));
+    } catch (error) {
+      console.error('Failed to load /api/metrics/profit-trend', error);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
   }, [period]);
+
+  useEffect(() => {
+    void fetchProfitTrend();
+  }, [fetchProfitTrend]);
+
+  useTradesSynced(fetchProfitTrend);
 
   const xTickFormatter = (v: string | number) =>
     period === 'months' ? formatMonthAxisLabel(String(v)) : formatAxisDateLabel(String(v));
