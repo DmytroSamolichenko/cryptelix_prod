@@ -55,22 +55,19 @@ function SummaryChip({ label, value, tone = 'neutral' }: SummaryChipProps) {
   return (
     <div
       className={cn(
-        'group relative isolate shrink-0 overflow-hidden rounded-xl border border-zinc-700/55 bg-zinc-900/75',
-        'px-3 py-2 min-w-[5.5rem]',
-        'transition-[border-color,box-shadow,background-color] duration-200',
-        'hover:border-yellow-500/45 hover:bg-zinc-900',
-        'hover:shadow-[0_0_14px_rgba(250,204,21,0.18)]'
+        'shrink-0 rounded-xl border border-zinc-800 bg-zinc-900/90 px-3.5 py-2.5 min-w-[6.25rem]',
+        'shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]'
       )}
     >
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 whitespace-nowrap group-hover:text-gray-400">
+      <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500 whitespace-nowrap">
         {label}
       </p>
       <p
         className={cn(
-          'mt-1 text-sm font-bold tabular-nums leading-none whitespace-nowrap',
-          tone === 'positive' && 'text-green-400',
+          'mt-1.5 text-[15px] font-semibold tabular-nums leading-none whitespace-nowrap',
+          tone === 'positive' && 'text-emerald-400',
           tone === 'negative' && 'text-red-400',
-          tone === 'neutral' && 'text-gray-200'
+          tone === 'neutral' && 'text-zinc-100'
         )}
       >
         {value}
@@ -81,9 +78,10 @@ function SummaryChip({ label, value, tone = 'neutral' }: SummaryChipProps) {
 
 interface DealBaseSummaryBarProps {
   deals: DealRow[];
+  className?: string;
 }
 
-export function DealBaseSummaryBar({ deals }: DealBaseSummaryBarProps) {
+export function DealBaseSummaryBar({ deals, className }: DealBaseSummaryBarProps) {
   const [ftr, setFtr] = useState<FtrReportPayload | null>(null);
 
   useEffect(() => {
@@ -152,12 +150,12 @@ export function DealBaseSummaryBar({ deals }: DealBaseSummaryBarProps) {
     netPnl > 0 ? 'positive' : netPnl < 0 ? 'negative' : 'neutral';
 
   return (
-    <div className="flex min-w-0 items-center gap-3">
-      <span className="shrink-0 text-xs font-bold uppercase tracking-wider text-gray-500 pr-1">
+    <div className={cn('flex min-w-0 flex-col gap-2', className)}>
+      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
         Total
       </span>
-      <div className="scrollbar-hidden min-w-0 flex-1 overflow-x-auto overflow-y-hidden py-1 -my-1">
-        <div className="flex w-max flex-nowrap items-stretch gap-2.5 pr-2">
+      <div className="scrollbar-hidden min-w-0 overflow-x-auto overflow-y-hidden">
+        <div className="flex w-max flex-nowrap items-stretch gap-2 pr-1">
           <SummaryChip label="Total PnL" value={formatUsd(netPnl)} tone={pnlTone} />
           <SummaryChip label="Total Trades" value={String(totalTrades)} />
           <SummaryChip label="Comms" value={formatUsd(commission)} />

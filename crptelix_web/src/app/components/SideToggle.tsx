@@ -12,9 +12,17 @@ interface SideToggleProps {
   onChange?: (side: TradeSide) => void;
   disabled?: boolean;
   className?: string;
+  /** stack = icon above label (modals); inline = icon beside label (tables) */
+  layout?: 'stack' | 'inline';
 }
 
-export function SideToggle({ value, onChange, disabled = false, className }: SideToggleProps) {
+export function SideToggle({
+  value,
+  onChange,
+  disabled = false,
+  className,
+  layout = 'inline',
+}: SideToggleProps) {
   const side = normalizeTradeSide(value);
   const isShort = side === 'Short';
   const isInteractive = !disabled && Boolean(onChange);
@@ -25,14 +33,14 @@ export function SideToggle({ value, onChange, disabled = false, className }: Sid
   };
 
   const iconClass = cn(
-    'h-5 w-5',
+    layout === 'inline' ? 'h-3.5 w-3.5' : 'h-5 w-5',
     isShort
       ? disabled
         ? 'text-red-500/75'
-        : 'text-red-400 drop-shadow-[0_0_6px_rgba(248,113,113,0.45)]'
+        : 'text-red-400'
       : disabled
-        ? 'text-green-600/80'
-        : 'text-green-400 drop-shadow-[0_0_6px_rgba(74,222,128,0.45)]'
+        ? 'text-emerald-600/80'
+        : 'text-emerald-400'
   );
 
   const labelClass = cn(
@@ -42,8 +50,8 @@ export function SideToggle({ value, onChange, disabled = false, className }: Sid
         ? 'text-red-500/70'
         : 'text-red-400 group-hover:text-red-300'
       : disabled
-        ? 'text-green-600/75'
-        : 'text-green-400 group-hover:text-green-300'
+        ? 'text-emerald-600/75'
+        : 'text-emerald-400 group-hover:text-emerald-300'
   );
 
   const content = (
@@ -58,7 +66,9 @@ export function SideToggle({ value, onChange, disabled = false, className }: Sid
   );
 
   const sharedClass = cn(
-    'group flex w-full min-w-[3.25rem] flex-col items-center justify-center gap-0.5 py-1 transition-colors',
+    'group flex items-center justify-start gap-1.5 py-1 transition-colors',
+    layout === 'stack' && 'w-full min-w-[3.25rem] flex-col justify-center gap-0.5',
+    layout === 'inline' && 'min-w-0',
     isInteractive && 'cursor-pointer active:scale-[0.97]',
     !isInteractive && 'cursor-default',
     className

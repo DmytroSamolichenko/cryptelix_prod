@@ -53,6 +53,7 @@ from models import ChatMessage as ChatMessageModel  # noqa: F401 — register OR
 from models import APIKey as APIKeyModel
 from models import BinanceWs as BinanceWsModel
 from models import ChatSession as ChatSessionModel
+from models import Feedback as FeedbackModel  # noqa: F401 — register ORM mapper
 from models import PairInventory as PairInventoryModel  # noqa: F401
 from models import Trade as TradeModel
 from models import User as UserModel
@@ -65,12 +66,15 @@ from schemas import (
     CheckEmailResponse,
     ExchangeCredentialsUpsertRequest,
     ExchangeSyncTradesRequest,
+    FeedbackStatusResponse,
+    FeedbackSubmitRequest,
     TradeCreate,
     TradeUpdate,
     Trade as TradeSchema,
     UserPublic,
 )
 from security import encrypt_data
+import feedback_service as feedback_svc
 
 
 logger = logging.getLogger("cryptelix")
@@ -524,6 +528,50 @@ async def get_exchange_credentials_status(
         "connected_exchanges": sorted(connected),
         "binance_connected": "binance" in connected,
     }
+
+
+@app.get("/api/v1/feedback/status", response_model=FeedbackStatusResponse)
+def get_feedback_status(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    # The row is created on first status poll after login — the active-usage
+    # countdown starts from app entry, not from connecting an API key.
+    try:
+        feedback_svc.ensure_feedback_row(db, current_user.id)
+    except Exception as exc:
+        logger.exception(
+            "Failed to ensure feedback row for user %s: %s", current_user.id, exc
+        )
+    return feedback_svc.build_status_payload(db, current_user.id)
+
+
+@app.post("/api/v1/feedback/skip", response_model=FeedbackStatusResponse)
+@limiter.limit("10/minute")
+def post_feedback_skip(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    return feedback_svc.skip_feedback(db, current_user.id)
+
+
+@app.post("/api/v1/feedback/submit")
+@limiter.limit("10/minute")
+def post_feedback_submit(
+    request: Request,
+    body: FeedbackSubmitRequest,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    return feedback_svc.submit_feedback(
+        db,
+        current_user.id,
+        q1=body.q1,
+        q2=body.q2,
+        q3=body.q3,
+        comment=body.comment,
+    )
 
 
 @app.delete("/api/v1/exchanges/credentials/{exchange_name}")
@@ -1328,6 +1376,8 @@ def post_chat_send(
         body.session_id,
         "msg_len=",
         len(body.message or ""),
+        "user_id=",
+        current_user.id,
         flush=True,
     )
     try:
@@ -1357,6 +1407,14 @@ def post_chat_send(
             detail="The assistant is temporarily unavailable. Please try again later.",
         ) from exc
     except Exception as exc:
+        logger.exception("Chat send internal error")
+        print("[chat/send] INTERNAL ERROR:", repr(exc), flush=True)
+        # In development surface a short reason so the UI is debuggable.
+        if (os.getenv("ENVIRONMENT") or "").strip().lower() == "development":
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Chat internal error: {type(exc).__name__}: {exc}",
+            ) from exc
         raise _internal_error(exc) from exc
 
 

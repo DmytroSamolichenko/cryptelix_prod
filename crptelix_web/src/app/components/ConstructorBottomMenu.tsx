@@ -100,10 +100,10 @@ export function ConstructorBottomMenu({
   };
 
   return (
-    <div className="relative z-30 overflow-visible bg-transparent">
-      <div className="flex flex-col gap-2 overflow-visible px-2 py-3 sm:min-h-[54px] sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:overflow-visible sm:px-3 sm:py-3">
+    <div className="pointer-events-none relative z-30 overflow-visible bg-transparent">
+      <div className="pointer-events-none flex flex-col gap-2 overflow-visible px-2 py-3 sm:min-h-[54px] sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:overflow-visible sm:px-3 sm:py-3">
         {/* Tools — centered; above dashboard tabs so they never get covered */}
-        <div className="order-1 flex shrink-0 items-center justify-center gap-2 sm:absolute sm:left-1/2 sm:top-1/2 sm:z-20 sm:-translate-x-1/2 sm:-translate-y-1/2">
+        <div className="pointer-events-auto order-1 flex shrink-0 items-center justify-center gap-2 sm:absolute sm:left-1/2 sm:top-1/2 sm:z-20 sm:-translate-x-1/2 sm:-translate-y-1/2">
           <div className="relative">
             <motion.button
               onClick={onWidgetsToggle}
@@ -202,7 +202,7 @@ export function ConstructorBottomMenu({
         </div>
 
         {/* Canvas tabs — scroll strip; glow is an inner blur (not box-shadow) so overflow won't clip it */}
-        <div className="order-2 z-0 min-w-0 max-w-full sm:max-w-[min(42%,calc(50%-11rem))] lg:max-w-[min(44%,calc(50%-12rem))]">
+        <div className="pointer-events-auto order-2 z-0 min-w-0 max-w-full sm:max-w-[min(42%,calc(50%-11rem))] lg:max-w-[min(44%,calc(50%-12rem))]">
           <div
             ref={tabsScrollRef}
             className="scrollbar-hidden flex items-center gap-0.5 overflow-x-auto overscroll-x-contain px-1 py-1"

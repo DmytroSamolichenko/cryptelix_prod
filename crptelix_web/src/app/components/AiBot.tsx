@@ -1,9 +1,18 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Sparkles, Clock, MessageSquare, Plus, Loader2 } from 'lucide-react';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
+import {
+  Send,
+  Sparkles,
+  Clock,
+  MessageSquare,
+  Plus,
+  Loader2,
+  LayoutGrid,
+  GitCompare,
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { ChatMessageMarkdown } from './ChatMessageMarkdown';
 import { apiFetch } from '../lib/apiClient';
+import { cn } from './ui/utils';
 
 interface Message {
   id: string;
@@ -39,6 +48,18 @@ function parseApiMessage(raw: {
     content: raw.content,
     timestamp: raw.created_at ? new Date(raw.created_at) : new Date(),
   };
+}
+
+function AssistantAvatar({ spinning = false }: { spinning?: boolean }) {
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-yellow-400 shadow-[0_0_16px_rgba(250,204,21,0.45)]">
+      {spinning ? (
+        <Loader2 className="h-4 w-4 animate-spin text-black" />
+      ) : (
+        <Sparkles className="h-4 w-4 text-black" strokeWidth={2.25} />
+      )}
+    </div>
+  );
 }
 
 export function AiBot() {
@@ -116,6 +137,8 @@ export function AiBot() {
     setActiveSessionId(null);
     setMessages([{ ...WELCOME, timestamp: new Date() }]);
     setSendError(null);
+    setSending(false);
+    setIsActionsOpen(false);
   };
 
   const handleSend = async () => {
@@ -123,6 +146,7 @@ export function AiBot() {
     if (!text || sending) return;
 
     setInput('');
+    setIsActionsOpen(false);
     setSendError(null);
     setSending(true);
 
@@ -134,6 +158,9 @@ export function AiBot() {
     };
     setMessages((prev) => [...prev, optimisticUser]);
 
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 90_000);
+
     try {
       const res = await apiFetch('/api/v1/chat/send', {
         method: 'POST',
@@ -142,6 +169,7 @@ export function AiBot() {
           session_id: activeSessionId,
           message: text,
         }),
+        signal: controller.signal,
       });
       const rawText = await res.text();
       if (!res.ok) {
@@ -180,70 +208,108 @@ export function AiBot() {
       void fetchSessions();
     } catch (e) {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id));
-      setSendError(e instanceof Error ? e.message : 'Failed to send message');
+      const aborted = e instanceof DOMException && e.name === 'AbortError';
+      const msg = e instanceof Error ? e.message : 'Failed to send message';
+      if (aborted) {
+        setSendError('Request timed out. Check that the backend is running, then try again.');
+      } else if (msg === 'Failed to fetch') {
+        setSendError(
+          'Cannot reach API (Failed to fetch). Is the backend running on :8000? Hard-refresh the page.'
+        );
+      } else {
+        setSendError(msg);
+      }
     } finally {
+      window.clearTimeout(timeoutId);
       setSending(false);
     }
   };
 
+  const quickActions = [
+    {
+      label: 'My portfolio',
+      prompt: 'Analyze my portfolio and PnL',
+      icon: Sparkles,
+    },
+    {
+      label: 'Dashboard',
+      prompt: 'Suggest a dashboard layout idea',
+      icon: LayoutGrid,
+    },
+    {
+      label: 'Compare',
+      prompt: 'Compare my assets',
+      icon: GitCompare,
+    },
+  ] as const;
+
   return (
-    <div className="h-full flex flex-col bg-zinc-950 border-l border-yellow-500/20">
-      {/* Chat History — chat_sessions */}
-      <div className="p-3 border-b border-yellow-500/20 bg-zinc-950 shrink-0">
-        <div className="flex items-center justify-between gap-2 mb-2">
+    <div className="flex h-full flex-col border-l border-zinc-800/80 bg-[#0c0c0c]">
+      {/* Chat History */}
+      <div className="shrink-0 border-b border-zinc-800/60 px-3 pb-3 pt-3">
+        <div className="mb-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Clock className="w-3.5 h-3.5 text-gray-400" />
-            <div className="text-xs font-medium text-gray-400">Chat history</div>
+            <Clock className="h-3.5 w-3.5 text-zinc-500" />
+            <div className="text-xs font-medium text-zinc-400">Chat history</div>
           </div>
           <button
             type="button"
             onClick={handleNewChat}
-            className="text-xs text-yellow-500 hover:text-yellow-400 px-2 py-1 rounded border border-yellow-500/30"
+            className="rounded-full bg-yellow-400 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-yellow-300"
           >
             New chat
           </button>
         </div>
-        <div className="space-y-1.5 max-h-36 overflow-y-auto">
+        <div className="max-h-36 space-y-1.5 overflow-y-auto">
           {loadingSessions ? (
-            <div className="flex items-center gap-2 text-xs text-gray-500 px-2 py-2">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <div className="flex items-center gap-2 px-2 py-2 text-xs text-zinc-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
               Loading…
             </div>
           ) : sessions.length === 0 ? (
-            <p className="text-xs text-gray-600 px-2">No saved sessions yet</p>
+            <p className="px-2 text-xs text-zinc-600">No saved sessions yet</p>
           ) : (
-            sessions.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className={`w-full text-left px-3 py-2 rounded-lg border transition-all group ${
-                  activeSessionId === s.id
-                    ? 'bg-zinc-800/80 border-yellow-500/40'
-                    : 'bg-black/50 hover:bg-zinc-800/50 border-zinc-800/50 hover:border-yellow-500/30'
-                }`}
-                onClick={() => handleSelectSession(s.id)}
-              >
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="w-3.5 h-3.5 text-gray-500 group-hover:text-yellow-400 shrink-0" />
-                  <div className="text-xs text-gray-300 group-hover:text-white truncate min-w-0">
+            sessions.map((s) => {
+              const active = activeSessionId === s.id;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={cn(
+                    'group flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-all',
+                    active
+                      ? 'border-yellow-400/70 bg-transparent shadow-[0_0_0_1px_rgba(250,204,21,0.12)]'
+                      : 'border-transparent bg-transparent hover:border-zinc-800 hover:bg-zinc-900/40'
+                  )}
+                  onClick={() => handleSelectSession(s.id)}
+                >
+                  <MessageSquare
+                    className={cn(
+                      'h-3.5 w-3.5 shrink-0',
+                      active ? 'text-yellow-400' : 'text-zinc-500 group-hover:text-zinc-400'
+                    )}
+                  />
+                  <div
+                    className={cn(
+                      'min-w-0 truncate text-xs font-medium',
+                      active ? 'text-yellow-400' : 'text-zinc-400 group-hover:text-zinc-200'
+                    )}
+                  >
                     {s.title?.trim() || 'Untitled chat'}
                   </div>
-                </div>
-              </button>
-            ))
+                </button>
+              );
+            })
           )}
         </div>
       </div>
 
       {/* Messages */}
-      <div
-        className="flex-1 min-h-0 overflow-y-auto p-4 bg-black"
-        ref={scrollRef}
-      >
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4" ref={scrollRef}>
         <div className="space-y-4">
           {loadingMessages ? (
-            <div className="flex items-center gap-2 text-sm text-gray-400 py-8 justify-center">
-              <Loader2 className="w-5 h-5 animate-spin" />
+            <div className="flex items-center justify-center gap-2 py-8 text-sm text-zinc-400">
+              <Loader2 className="h-5 w-5 animate-spin" />
               Loading messages…
             </div>
           ) : (
@@ -251,28 +317,29 @@ export function AiBot() {
               {messages.map((message) => (
                 <div
                   key={message.id}
-                  className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : ''}`}
-                >
-                  {message.role === 'assistant' && (
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-yellow-500/30">
-                      <Sparkles className="w-4 h-4 text-black" />
-                    </div>
+                  className={cn(
+                    'flex gap-2.5',
+                    message.role === 'user' ? 'justify-end' : 'items-end'
                   )}
+                >
+                  {message.role === 'assistant' && <AssistantAvatar />}
                   <div
-                    className={`max-w-[80%] rounded-2xl px-4 py-2 ${
+                    className={cn(
+                      'max-w-[82%] rounded-2xl px-4 py-3',
                       message.role === 'user'
                         ? 'bg-yellow-400 text-black'
-                        : 'bg-zinc-900 text-white border border-yellow-500/20'
-                    }`}
+                        : 'bg-zinc-900 text-zinc-100'
+                    )}
                   >
                     <ChatMessageMarkdown
                       content={message.content}
                       variant={message.role === 'user' ? 'user' : 'assistant'}
                     />
                     <div
-                      className={`text-xs mt-1 ${
-                        message.role === 'user' ? 'text-black/60' : 'text-gray-500'
-                      }`}
+                      className={cn(
+                        'mt-2 text-[11px]',
+                        message.role === 'user' ? 'text-black/55' : 'text-zinc-500'
+                      )}
                     >
                       {message.timestamp.toLocaleTimeString([], {
                         hour: '2-digit',
@@ -283,12 +350,10 @@ export function AiBot() {
                 </div>
               ))}
               {sending && (
-                <div className="flex gap-3">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-yellow-500/30">
-                    <Loader2 className="w-4 h-4 text-black animate-spin" />
-                  </div>
-                  <div className="rounded-2xl px-4 py-3 bg-zinc-900 border border-yellow-500/20">
-                    <p className="text-sm text-gray-400">Assistant is typing…</p>
+                <div className="flex items-end gap-2.5">
+                  <AssistantAvatar spinning />
+                  <div className="rounded-2xl bg-zinc-900 px-4 py-3">
+                    <p className="text-sm text-zinc-400">Assistant is typing…</p>
                   </div>
                 </div>
               )}
@@ -298,96 +363,99 @@ export function AiBot() {
       </div>
 
       {sendError && (
-        <div className="px-4 py-2 text-xs text-red-400 bg-red-950/40 border-t border-red-900/50">
+        <div className="border-t border-red-900/50 bg-red-950/40 px-4 py-2 text-xs text-red-400">
           {sendError}
         </div>
       )}
 
       {/* Input */}
-      <div className="border-t border-yellow-500/20 bg-black shrink-0">
-        <div className="px-4 py-4">
-          <div className="flex gap-2 items-end">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setIsActionsOpen(!isActionsOpen)}
-                className="w-9 h-9 flex items-center justify-center bg-zinc-900 hover:bg-zinc-800 border border-yellow-500/30 hover:border-yellow-400 rounded-lg transition-all"
-              >
-                <Plus className="w-5 h-5 text-yellow-400" />
-              </button>
-
-              {isActionsOpen && (
-                <div className="absolute bottom-full left-0 mb-2 w-56 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl overflow-hidden z-50">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setInput('Analyze my portfolio and PnL');
-                      setIsActionsOpen(false);
-                    }}
-                    className="w-full px-4 py-3 text-left text-sm text-white hover:bg-zinc-800 border-b border-zinc-800 transition-colors flex items-center gap-3"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-yellow-500/10 flex items-center justify-center">
-                      <Sparkles className="w-4 h-4 text-yellow-400" />
-                    </div>
-                    <span>My portfolio</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setInput('Suggest a dashboard layout idea');
-                      setIsActionsOpen(false);
-                    }}
-                    className="w-full px-4 py-3 text-left text-sm text-white hover:bg-zinc-800 border-b border-zinc-800 transition-colors flex items-center gap-3"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-yellow-500/10 flex items-center justify-center">
-                      <MessageSquare className="w-4 h-4 text-yellow-400" />
-                    </div>
-                    <span>Dashboard</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setInput('Compare my assets');
-                      setIsActionsOpen(false);
-                    }}
-                    className="w-full px-4 py-3 text-left text-sm text-white hover:bg-zinc-800 transition-colors flex items-center gap-3"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-yellow-500/10 flex items-center justify-center">
-                      <Clock className="w-4 h-4 text-yellow-400" />
-                    </div>
-                    <span>Compare</span>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  void handleSend();
-                }
-              }}
-              placeholder="Ask about metrics or your portfolio…"
-              disabled={sending}
-              className="flex-1 bg-zinc-900 border-yellow-500/30 text-white placeholder:text-gray-500 focus:border-yellow-400"
-            />
-            <Button
-              type="button"
-              onClick={() => void handleSend()}
-              disabled={sending || !input.trim()}
-              size="icon"
-              className="bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 text-black shadow-lg shadow-yellow-500/50 disabled:opacity-50"
+      <div className="relative shrink-0 px-3 pb-3 pt-1">
+        <AnimatePresence>
+          {isActionsOpen && (
+            <motion.div
+              key="quick-actions"
+              initial={{ opacity: 0, y: 10, scale: 0.94 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.96 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 28 }}
+              className="absolute bottom-full left-3 z-50 mb-2 w-56 origin-bottom-left overflow-hidden rounded-xl border border-zinc-700/80 bg-zinc-900 shadow-2xl shadow-black/50"
             >
-              {sending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
-            </Button>
-          </div>
+              {quickActions.map((action, index) => (
+                <motion.button
+                  key={action.label}
+                  type="button"
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.04 * index, duration: 0.18 }}
+                  onClick={() => {
+                    setInput(action.prompt);
+                    setIsActionsOpen(false);
+                  }}
+                  className={cn(
+                    'flex w-full items-center gap-3 px-3 py-3 text-left text-sm font-medium text-white transition-colors hover:bg-zinc-800',
+                    index < quickActions.length - 1 && 'border-b border-zinc-800'
+                  )}
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-yellow-500/50 bg-transparent">
+                    <action.icon className="h-4 w-4 text-yellow-400" />
+                  </div>
+                  <span>{action.label}</span>
+                </motion.button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="flex items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-900/90 px-2 py-1.5 shadow-inner shadow-black/20">
+          <motion.button
+            type="button"
+            onClick={() => setIsActionsOpen((open) => !open)}
+            whileHover={{ scale: 1.06 }}
+            whileTap={{ scale: 0.9 }}
+            animate={{
+              rotate: isActionsOpen ? 45 : 0,
+              backgroundColor: isActionsOpen ? 'rgba(250, 204, 21, 0.14)' : 'rgb(39, 39, 42)',
+              borderColor: isActionsOpen ? 'rgb(250, 204, 21)' : 'rgba(63, 63, 70, 0.8)',
+              color: isActionsOpen ? 'rgb(250, 204, 21)' : 'rgb(212, 212, 216)',
+            }}
+            transition={{ type: 'spring', stiffness: 420, damping: 24 }}
+            className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border"
+            aria-label={isActionsOpen ? 'Close quick actions' : 'Open quick actions'}
+            aria-expanded={isActionsOpen}
+          >
+            <Plus className="h-4 w-4" strokeWidth={2.5} />
+          </motion.button>
+
+          <input
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              if (sendError) setSendError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void handleSend();
+              }
+            }}
+            placeholder="Ask about metrics or your portfolio…"
+            className="min-w-0 flex-1 bg-transparent px-1 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
+          />
+
+          <motion.button
+            type="button"
+            onClick={() => void handleSend()}
+            disabled={sending || !input.trim()}
+            whileTap={sending || !input.trim() ? undefined : { scale: 0.9 }}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Send message"
+          >
+            {sending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </motion.button>
         </div>
       </div>
     </div>

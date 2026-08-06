@@ -27,6 +27,8 @@ interface Deal {
   isManual?: boolean;
   /** WAC journal trade from Binance sync */
   isWacTrade?: boolean;
+  /** Exchange label for pair badge (e.g. binance) */
+  exchangeName?: string | null;
   /** Set when trade is tied to an exchange row; used with isManual for edit locking */
   exchangeTradeId?: string | null;
   [key: string]: any;
@@ -277,6 +279,7 @@ function apiTradeToDeal(api: ApiTrade, index: number, customColumns: CustomColum
     isManual: api.is_manual ?? true,
     exchangeTradeId: api.exchange_trade_id ?? null,
     isWacTrade,
+    exchangeName: api.exchange_name ? String(api.exchange_name) : null,
     date: dateOnly,
     pair: api.pair ?? '',
     type: api.side ?? '',
@@ -418,9 +421,15 @@ export function DataBase() {
   const fetchTrades = useCallback(async () => {
     try {
       const res = await apiFetch('/api/v1/trades');
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.error('[Deal Base] Failed to load trades', res.status);
+        return;
+      }
       const data: ApiTrade[] = await res.json();
-      if (!Array.isArray(data)) return;
+      if (!Array.isArray(data)) {
+        console.error('[Deal Base] Unexpected trades payload', data);
+        return;
+      }
       const deals: Deal[] = data
         .map((t, i) => apiTradeToDeal(t, i, customColumns))
         .sort((a, b) => {
@@ -432,8 +441,8 @@ export function DataBase() {
         ...prev,
         deals,
       }));
-    } catch {
-      // Keep static fallback deals on error
+    } catch (err) {
+      console.error('[Deal Base] Error loading trades', err);
     }
   }, [customColumns]);
 
@@ -693,21 +702,21 @@ export function DataBase() {
 
   const getCellClassName = (value: string, type: ColumnType) => {
     const baseClass =
-      'w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-yellow-500/50 rounded px-2 py-1 font-semibold';
+      'w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-yellow-500/40 rounded-md px-3 py-2.5 text-[13px] font-medium';
 
-    let alignClass = 'text-left';
-    let colorClass = 'text-gray-300';
+    let alignClass = 'text-center';
+    let colorClass = 'text-zinc-200';
 
     if (type === 'number') {
-      alignClass = 'text-right';
+      alignClass = 'text-center tabular-nums';
       const trimmed = value.trim();
-      if (trimmed.startsWith('+')) colorClass = 'text-green-400';
+      if (trimmed.startsWith('+')) colorClass = 'text-emerald-400';
       if (trimmed.startsWith('-')) colorClass = 'text-red-400';
     } else if (type === 'percentage') {
-      alignClass = 'text-right';
+      alignClass = 'text-center tabular-nums';
       const numeric = Number(String(value).replace('%', ''));
       if (!Number.isNaN(numeric)) {
-        if (numeric > 0) colorClass = 'text-green-400';
+        if (numeric > 0) colorClass = 'text-emerald-400';
         else if (numeric < 0) colorClass = 'text-red-400';
       }
     }
@@ -769,365 +778,398 @@ export function DataBase() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-black">
-      {/* Summary aggregates */}
-      <div className="border-b border-zinc-800/50 bg-zinc-950/50 px-4 py-2.5 overflow-hidden">
-        <DealBaseSummaryBar deals={sheet.deals} />
-      </div>
+    <div className="flex h-full min-h-0 flex-col bg-zinc-950">
+      {/* Summary + actions */}
+      <div className="flex shrink-0 flex-col gap-3 px-4 pb-3 pt-4 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+        <DealBaseSummaryBar deals={sheet.deals} className="min-w-0 flex-1" />
 
-      {/* Toolbar */}
-      <div className="border-b border-zinc-800/50 bg-zinc-950/50 px-4 py-2 flex items-center justify-end gap-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-gray-300 text-sm font-medium rounded-lg transition-all flex items-center gap-2 border border-zinc-700"
-            >
-              Table Editor
-              <ChevronDown className="w-4 h-4 opacity-70" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            className="min-w-[10.5rem] border-zinc-700 bg-zinc-900 text-gray-200"
-          >
-            <DropdownMenuItem
-              className="cursor-pointer focus:bg-zinc-800 focus:text-white"
-              onSelect={() => setShowAddTradeModal(true)}
-            >
-              <Plus className="w-4 h-4" />
-              Add Row
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="cursor-pointer focus:bg-zinc-800 focus:text-white"
-              onSelect={() => setShowAddColumnModal(true)}
-            >
-              <Plus className="w-4 h-4" />
-              Add Column
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-gray-300 text-sm font-medium rounded-lg transition-all flex items-center gap-2 border border-zinc-700"
-            >
-              Import/Export
-              <ChevronDown className="w-4 h-4 opacity-70" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            className="min-w-[10.5rem] border-zinc-700 bg-zinc-900 text-gray-200"
-          >
-            <DropdownMenuItem className="cursor-pointer focus:bg-zinc-800 focus:text-white">
-              <Upload className="w-4 h-4" />
-              Import
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="cursor-pointer focus:bg-zinc-800 focus:text-white disabled:opacity-50"
-              disabled={!sheet.deals.length || exporting}
-              onSelect={() => void handleExportTrades()}
-            >
-              <Download className="w-4 h-4" />
-              {exporting ? 'Exporting...' : 'Export'}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      {/* Table */}
-      <div className="flex-1 overflow-auto">
-        <table className="w-full text-sm font-medium">
-          <thead className="sticky top-0 bg-zinc-900/90 backdrop-blur-sm border-b border-zinc-800">
-            <tr>
-              {activeSheet?.columns.map((column) => (
-                <th
-                  key={column.id}
-                  className="px-0 py-0 text-left text-xs font-bold text-gray-400 uppercase tracking-wider"
-                  style={{
-                    width: column.width,
-                    minWidth: column.id === 'type' ? 120 : 80,
-                  }}
-                >
-                  <div className="flex items-center justify-between group px-4 py-3 relative">
-                    <div className="flex items-center gap-2">
-                      <span>{column.name}</span>
-                      {column.type === 'percentage' && (
-                        <span className="text-xs text-gray-500">(%)</span>
-                      )}
-                      {column.type === 'number' && (
-                        <span className="text-xs text-gray-500">(#)</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => deleteColumn(column.id)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-red-400"
-                        title="Delete column"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                      <div
-                        onMouseDown={(e) =>
-                          handleColumnResizeMouseDown(e, column.id)
-                        }
-                        className="w-1 h-6 ml-1 cursor-col-resize bg-transparent group-hover:bg-yellow-500/40 transition-colors"
-                      />
-                    </div>
-                  </div>
-                </th>
-              ))}
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider w-16"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {activeSheet?.deals.map((deal) => (
-              <tr
-                key={deal.id}
-                className="border-b border-zinc-800/30 hover:bg-zinc-900/30 transition-colors"
+        <div className="flex shrink-0 items-center justify-end gap-2 self-end">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 hover:text-white"
               >
-                {activeSheet.columns.map((column) => (
-                  <td
-                    key={column.id}
-                    className={`px-0 py-0 ${column.id === 'notes' || column.id === 'ai_report' ? 'align-top' : ''}`}
-                    style={{
-                      width: column.width,
-                      minWidth: column.id === 'type' ? 120 : 80,
-                    }}
-                  >
-                    {column.id === 'notes' ? (
-                      editingNote.dealId === deal.id ? (
-                        <textarea
-                          value={editingNote.draft}
-                          onChange={(e) =>
-                            setEditingNote((prev) => ({ ...prev, draft: e.target.value }))
-                          }
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              void saveNote(deal.id, editingNote.draft);
-                              setEditingNote({ dealId: null, draft: '' });
+                Table Editor
+                <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="min-w-[10.5rem] border-zinc-700 bg-zinc-900 text-gray-200"
+            >
+              <DropdownMenuItem
+                className="cursor-pointer focus:bg-zinc-800 focus:text-white"
+                onSelect={() => setShowAddTradeModal(true)}
+              >
+                <Plus className="w-4 h-4" />
+                Add Row
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer focus:bg-zinc-800 focus:text-white"
+                onSelect={() => setShowAddColumnModal(true)}
+              >
+                <Plus className="w-4 h-4" />
+                Add Column
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 hover:text-white"
+              >
+                Import/Export
+                <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="min-w-[10.5rem] border-zinc-700 bg-zinc-900 text-gray-200"
+            >
+              <DropdownMenuItem className="cursor-pointer focus:bg-zinc-800 focus:text-white">
+                <Upload className="w-4 h-4" />
+                Import
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer focus:bg-zinc-800 focus:text-white disabled:opacity-50"
+                disabled={!sheet.deals.length || exporting}
+                onSelect={() => void handleExportTrades()}
+              >
+                <Download className="w-4 h-4" />
+                {exporting ? 'Exporting...' : 'Export'}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      {/* Table card */}
+      <div className="min-h-0 flex-1 px-4 pb-4">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+          <div className="min-h-0 flex-1 overflow-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead className="sticky top-0 z-10 border-b border-zinc-800/80 bg-zinc-900/95 backdrop-blur-sm">
+                <tr>
+                  {activeSheet?.columns.map((column) => (
+                    <th
+                      key={column.id}
+                      className="px-0 py-0 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500"
+                      style={{
+                        width: column.width,
+                        minWidth: column.id === 'type' ? 100 : column.id === 'ai_report' ? 200 : 80,
+                      }}
+                    >
+                      <div className="group relative flex items-center justify-center px-3 py-3">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <span>{column.name}</span>
+                          {column.type === 'percentage' && (
+                            <span className="text-[10px] text-zinc-600">(%)</span>
+                          )}
+                          {column.type === 'number' && (
+                            <span className="text-[10px] text-zinc-600">(#)</span>
+                          )}
+                        </div>
+                        <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                          <button
+                            onClick={() => deleteColumn(column.id)}
+                            className="text-zinc-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+                            title="Delete column"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                          <div
+                            onMouseDown={(e) =>
+                              handleColumnResizeMouseDown(e, column.id)
                             }
-                          }}
-                          onBlur={() => {
-                            void saveNote(deal.id, editingNote.draft);
-                            setEditingNote({ dealId: null, draft: '' });
-                          }}
-                          rows={1}
-                          placeholder="Add note..."
-                          className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-yellow-500/50 rounded px-2 py-1 text-left text-gray-300 placeholder:text-gray-600 resize-none"
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setEditingNote({
-                              dealId: deal.id,
-                              draft: String(deal[column.id] ?? ''),
-                            })
-                          }
-                          className="w-full text-left px-2 py-1 rounded hover:bg-zinc-900/30 transition-colors"
-                        >
-                          {String(deal[column.id] ?? '') ? (
-                            <span className="text-gray-300">{String(deal[column.id] ?? '')}</span>
-                          ) : (
-                            <span className="text-gray-600">Add note...</span>
-                          )}
-                        </button>
-                      )
-                    ) : column.id === 'ai_report' ? (
-                      (() => {
-                        const busy = !!aiAnalyzeBusy[deal.id];
-                        const err = !!aiAnalyzeError[deal.id];
-                        const raw = String(deal.ai_report ?? '');
-                        const empty = isAiReportEmpty(raw);
-                        const expanded = !!aiInsightsExpanded[deal.id];
-                        const longText = raw.length > AI_REPORT_PREVIEW_CHARS;
-                        const shown =
-                          longText && !expanded
-                            ? `${raw.slice(0, AI_REPORT_PREVIEW_CHARS)}…`
-                            : raw;
-
-                        if (busy) {
-                          return (
-                            <div className="flex items-center justify-center px-2 py-2">
-                              <Loader2 className="w-5 h-5 text-yellow-500 animate-spin" aria-label="Analyzing" />
-                            </div>
-                          );
-                        }
-
-                        if (err) {
-                          return (
-                            <div className="px-2 py-1 flex flex-col gap-1 items-start">
-                              <span className="text-red-400 text-sm">Error - Try again</span>
-                              <button
-                                type="button"
-                                onClick={() => void handleAnalyzeAi(deal.id)}
-                                className="text-xs font-medium text-yellow-500 hover:text-yellow-400"
-                              >
-                                ✨ Analyze
-                              </button>
-                            </div>
-                          );
-                        }
-
-                        if (empty) {
-                          return (
-                            <div className="px-2 py-1">
-                              <button
-                                type="button"
-                                onClick={() => void handleAnalyzeAi(deal.id)}
-                                className="text-xs font-medium text-yellow-500 hover:text-yellow-400"
-                              >
-                                ✨ Analyze
-                              </button>
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <div className="w-full min-w-0 px-2 py-1 text-left text-sm font-medium text-gray-300" title={raw}>
-                            <p className="whitespace-pre-wrap break-words font-medium text-gray-300">
-                              {shown}
-                            </p>
-                            {longText && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setAiInsightsExpanded((prev) => ({
-                                    ...prev,
-                                    [deal.id]: !prev[deal.id],
-                                  }))
-                                }
-                                className="mt-1 text-sm text-gray-600 hover:text-gray-400"
-                              >
-                                {expanded ? 'Show less' : 'Read more'}
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })()
-                    ) : isCellLocked(deal, column.id) ? (
-                      column.id === 'type' ? (
-                        <div className="px-1 py-1">
-                          <SideToggle value={String(deal.type || 'Long')} disabled />
+                            className="h-5 w-1 cursor-col-resize bg-transparent transition-colors group-hover:bg-yellow-500/35"
+                          />
                         </div>
-                      ) : column.id === 'date' ? (
-                        <div className={getCellClassName(formatDateDisplay(deal[column.id] || ''), column.type)}>
-                          {formatDateDisplay(deal[column.id] || '')}
-                        </div>
-                      ) : column.id === 'pair' ? (
-                        <div className="flex items-center gap-1.5 px-2 py-1 min-w-0">
-                          <span className="truncate text-gray-300">{String(deal.pair ?? '')}</span>
-                          {deal.isWacTrade && (
-                            <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-500/90 bg-yellow-500/10 border border-yellow-500/30 rounded">
-                              Binance
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <div className={getCellClassName(String(deal[column.id] ?? ''), column.type)}>
-                          {String(deal[column.id] ?? '')}
-                        </div>
-                      )
-                    ) : column.id === 'type' ? (
-                      <div className="px-1 py-1">
-                        <SideToggle
-                          value={String(deal.type || 'Long')}
-                          onChange={(v) => {
-                            updateDeal(deal.id, column.id, v);
-                            const next = { ...deal, type: v };
-                            void syncDealFieldToApi(next, 'type', v);
-                          }}
-                        />
                       </div>
-                    ) : column.id === 'date' ? (
-                      <div className="relative">
-                        <input
-                          type="date"
-                          value={toIsoDateString(deal[column.id] || '')}
-                          lang="en-CA"
-                          onFocus={() => setActiveDateEditor(deal.id)}
-                          onChange={(e) => updateDeal(deal.id, column.id, e.target.value)}
-                          onBlur={(e) => {
-                            const v = e.currentTarget.value;
-                            const next = { ...deal, date: v };
-                            void syncDealFieldToApi(next, 'date', v);
-                            setActiveDateEditor((prev) => (prev === deal.id ? null : prev));
-                          }}
-                          className={`${getCellClassName(deal[column.id] || '', column.type)} ${
-                            activeDateEditor === deal.id ? '' : 'text-transparent'
-                          }`}
-                        />
-                        {activeDateEditor !== deal.id && (
-                          <span className="pointer-events-none absolute inset-0 flex items-center px-2 text-gray-300">
-                            {formatDateDisplay(deal[column.id] || '')}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <input
-                        type="text"
-                        value={deal[column.id] || ''}
-                        onChange={(e) => updateDeal(deal.id, column.id, e.target.value)}
-                        onBlur={(e) => {
-                          const rawInput = e.currentTarget.value;
-                          let next: Deal = { ...deal };
-                          let override: string | undefined;
-                          if (column.type === 'number' || column.type === 'percentage') {
-                            const formatted = formatValue(rawInput, column.type, column.id);
-                            next = { ...deal, [column.id]: formatted };
-                            updateDeal(deal.id, column.id, formatted);
-                            const numericRaw = rawInput.replace(/,/g, '').replace(/^\+/, '').trim();
-                            // Commit PATCH from raw cell input so formatted strings never parse as empty / 0
-                            override =
-                              column.id === 'pnl' ||
-                              column.id === 'entryPrice' ||
-                              column.id === 'exitPrice' ||
-                              column.id === 'commission' ||
-                              column.id === 'quantity'
-                                ? numericRaw
-                                : formatted;
-                          } else {
-                            next = { ...deal, [column.id]: rawInput };
-                            updateDeal(deal.id, column.id, rawInput);
-                            override = rawInput;
-                          }
-                          void syncDealFieldToApi(next, column.id, override);
-                        }}
-                        placeholder={
-                          column.type === 'number'
-                            ? '0.00'
-                            : column.type === 'percentage'
-                              ? '0%'
-                              : 'Enter value...'
-                        }
-                        className={getCellClassName(deal[column.id] || '', column.type)}
-                      />
-                    )}
-                  </td>
-                ))}
-                <td className="px-4 py-2">
-                  <button
-                    onClick={() => deleteDeal(deal)}
-                    disabled={deal.isManual === false}
-                    className={`transition-colors ${
-                      deal.isManual === false
-                        ? 'text-zinc-700 cursor-not-allowed'
-                        : 'text-gray-500 hover:text-red-400'
+                    </th>
+                  ))}
+                  <th className="w-12 px-2 py-3" aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {activeSheet?.deals.map((deal, rowIndex) => (
+                  <tr
+                    key={deal.id}
+                    className={`border-b border-zinc-800/50 transition-colors hover:bg-zinc-800/35 ${
+                      rowIndex % 2 === 0 ? 'bg-zinc-950/20' : 'bg-transparent'
                     }`}
-                    title={deal.isManual === false ? 'System Trade' : 'Delete trade'}
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    {activeSheet.columns.map((column) => (
+                      <td
+                        key={column.id}
+                        className={`px-0 py-0 ${column.id === 'notes' || column.id === 'ai_report' ? 'align-top' : 'align-middle'}`}
+                        style={{
+                          width: column.width,
+                          minWidth: column.id === 'type' ? 100 : column.id === 'ai_report' ? 200 : 80,
+                        }}
+                      >
+                        {column.id === 'notes' ? (
+                          editingNote.dealId === deal.id ? (
+                            <textarea
+                              value={editingNote.draft}
+                              onChange={(e) =>
+                                setEditingNote((prev) => ({ ...prev, draft: e.target.value }))
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault();
+                                  void saveNote(deal.id, editingNote.draft);
+                                  setEditingNote({ dealId: null, draft: '' });
+                                }
+                              }}
+                              onBlur={() => {
+                                void saveNote(deal.id, editingNote.draft);
+                                setEditingNote({ dealId: null, draft: '' });
+                              }}
+                              rows={1}
+                              placeholder="Add note..."
+                              className="w-full resize-none rounded-md border-none bg-transparent px-3 py-2.5 text-left text-[13px] text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-yellow-500/40"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditingNote({
+                                  dealId: deal.id,
+                                  draft: String(deal[column.id] ?? ''),
+                                })
+                              }
+                              className="w-full rounded-md px-3 py-2.5 text-left transition-colors hover:bg-zinc-800/40"
+                            >
+                              {String(deal[column.id] ?? '') ? (
+                                <span className="text-[13px] text-zinc-300">
+                                  {String(deal[column.id] ?? '')}
+                                </span>
+                              ) : (
+                                <span className="text-[13px] text-zinc-600">Add note...</span>
+                              )}
+                            </button>
+                          )
+                        ) : column.id === 'ai_report' ? (
+                          (() => {
+                            const busy = !!aiAnalyzeBusy[deal.id];
+                            const err = !!aiAnalyzeError[deal.id];
+                            const raw = String(deal.ai_report ?? '');
+                            const empty = isAiReportEmpty(raw);
+                            const expanded = !!aiInsightsExpanded[deal.id];
+                            const longText = raw.length > AI_REPORT_PREVIEW_CHARS;
+                            const shown =
+                              longText && !expanded
+                                ? `${raw.slice(0, AI_REPORT_PREVIEW_CHARS)}…`
+                                : raw;
+
+                            if (busy) {
+                              return (
+                                <div className="flex items-center justify-center px-3 py-2.5">
+                                  <Loader2
+                                    className="h-5 w-5 animate-spin text-yellow-500"
+                                    aria-label="Analyzing"
+                                  />
+                                </div>
+                              );
+                            }
+
+                            if (err) {
+                              return (
+                                <div className="flex flex-col items-start gap-1 px-3 py-2.5">
+                                  <span className="text-sm text-red-400">Error - Try again</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleAnalyzeAi(deal.id)}
+                                    className="text-xs font-medium text-yellow-500 hover:text-yellow-400"
+                                  >
+                                    ✨ Analyze
+                                  </button>
+                                </div>
+                              );
+                            }
+
+                            if (empty) {
+                              return (
+                                <div className="px-3 py-2.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleAnalyzeAi(deal.id)}
+                                    className="text-xs font-medium text-yellow-500 hover:text-yellow-400"
+                                  >
+                                    ✨ Analyze
+                                  </button>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div
+                                className="w-full min-w-0 px-3 py-2.5 text-left text-[13px] font-medium text-zinc-400"
+                                title={raw}
+                              >
+                                <p className="whitespace-pre-wrap break-words">{shown}</p>
+                                {longText && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setAiInsightsExpanded((prev) => ({
+                                        ...prev,
+                                        [deal.id]: !prev[deal.id],
+                                      }))
+                                    }
+                                    className="mt-1 text-sm text-zinc-500 hover:text-zinc-300"
+                                  >
+                                    {expanded ? 'Show less' : 'Read more'}
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })()
+                        ) : isCellLocked(deal, column.id) ? (
+                          column.id === 'type' ? (
+                            <div className="px-3 py-1.5">
+                              <SideToggle value={String(deal.type || 'Long')} disabled />
+                            </div>
+                          ) : column.id === 'date' ? (
+                            <div
+                              className={getCellClassName(
+                                formatDateDisplay(deal[column.id] || ''),
+                                column.type
+                              )}
+                            >
+                              {formatDateDisplay(deal[column.id] || '')}
+                            </div>
+                          ) : column.id === 'pair' ? (
+                            <div className="flex min-w-0 items-center gap-2 px-3 py-2.5">
+                              <span className="truncate text-[13px] font-semibold text-zinc-100">
+                                {String(deal.pair ?? '')}
+                              </span>
+                              {(() => {
+                                const label = String(
+                                  deal.exchangeName || (deal.isWacTrade ? 'binance' : '')
+                                ).trim();
+                                if (!label) return null;
+                                return (
+                                  <span className="shrink-0 rounded border border-[#F0B90B]/75 bg-[#1a1408] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#F0B90B]">
+                                    {label}
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          ) : (
+                            <div
+                              className={getCellClassName(
+                                String(deal[column.id] ?? ''),
+                                column.type
+                              )}
+                            >
+                              {String(deal[column.id] ?? '')}
+                            </div>
+                          )
+                        ) : column.id === 'type' ? (
+                          <div className="px-3 py-1.5">
+                            <SideToggle
+                              value={String(deal.type || 'Long')}
+                              onChange={(v) => {
+                                updateDeal(deal.id, column.id, v);
+                                const next = { ...deal, type: v };
+                                void syncDealFieldToApi(next, 'type', v);
+                              }}
+                            />
+                          </div>
+                        ) : column.id === 'date' ? (
+                          <div className="relative min-h-[2.5rem]">
+                            {activeDateEditor !== deal.id && (
+                              <span className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center px-3 text-[13px] font-medium text-zinc-200">
+                                {formatDateDisplay(deal[column.id] || '')}
+                              </span>
+                            )}
+                            <input
+                              type="date"
+                              value={toIsoDateString(deal[column.id] || '')}
+                              lang="en-CA"
+                              onFocus={() => setActiveDateEditor(deal.id)}
+                              onChange={(e) => updateDeal(deal.id, column.id, e.target.value)}
+                              onBlur={(e) => {
+                                const v = e.currentTarget.value;
+                                const next = { ...deal, date: v };
+                                void syncDealFieldToApi(next, 'date', v);
+                                setActiveDateEditor((prev) => (prev === deal.id ? null : prev));
+                              }}
+                              className={
+                                activeDateEditor === deal.id
+                                  ? getCellClassName(deal[column.id] || '', column.type)
+                                  : 'absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0'
+                              }
+                            />
+                          </div>
+                        ) : (
+                          <input
+                            type="text"
+                            value={deal[column.id] || ''}
+                            onChange={(e) => updateDeal(deal.id, column.id, e.target.value)}
+                            onBlur={(e) => {
+                              const rawInput = e.currentTarget.value;
+                              let next: Deal = { ...deal };
+                              let override: string | undefined;
+                              if (column.type === 'number' || column.type === 'percentage') {
+                                const formatted = formatValue(rawInput, column.type, column.id);
+                                next = { ...deal, [column.id]: formatted };
+                                updateDeal(deal.id, column.id, formatted);
+                                const numericRaw = rawInput
+                                  .replace(/,/g, '')
+                                  .replace(/^\+/, '')
+                                  .trim();
+                                override =
+                                  column.id === 'pnl' ||
+                                  column.id === 'entryPrice' ||
+                                  column.id === 'exitPrice' ||
+                                  column.id === 'commission' ||
+                                  column.id === 'quantity'
+                                    ? numericRaw
+                                    : formatted;
+                              } else {
+                                next = { ...deal, [column.id]: rawInput };
+                                updateDeal(deal.id, column.id, rawInput);
+                                override = rawInput;
+                              }
+                              void syncDealFieldToApi(next, column.id, override);
+                            }}
+                            placeholder={
+                              column.type === 'number'
+                                ? '0.00'
+                                : column.type === 'percentage'
+                                  ? '0%'
+                                  : 'Enter value...'
+                            }
+                            className={getCellClassName(deal[column.id] || '', column.type)}
+                          />
+                        )}
+                      </td>
+                    ))}
+                    <td className="px-2 py-2.5 align-middle">
+                      <button
+                        onClick={() => deleteDeal(deal)}
+                        disabled={deal.isManual === false}
+                        className={`rounded-md p-1.5 transition-colors ${
+                          deal.isManual === false
+                            ? 'cursor-not-allowed text-zinc-700'
+                            : 'text-zinc-500 hover:bg-zinc-800 hover:text-red-400'
+                        }`}
+                        title={deal.isManual === false ? 'System Trade' : 'Delete trade'}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {/* Add Trade Modal */}

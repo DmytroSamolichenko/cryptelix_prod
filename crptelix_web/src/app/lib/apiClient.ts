@@ -1,8 +1,12 @@
 import { clearAuth, getAccessToken } from './authStorage';
 
+/**
+ * In Vite dev, use same-origin `/api` (proxied to uvicorn).
+ * In production builds, call the API host directly.
+ */
 export const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
-  'http://localhost:8000';
+  (import.meta.env.DEV ? '' : 'http://127.0.0.1:8000');
 
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const headers = new Headers(options.headers);

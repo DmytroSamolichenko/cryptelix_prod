@@ -17,6 +17,18 @@ export default defineConfig({
     },
   },
 
+  // Same-origin /api in dev → avoids localhost/::1/CORS fetch failures to uvicorn.
+  server: {
+    host: '127.0.0.1',
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
+  },
+
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })

@@ -211,7 +211,7 @@ export function AddTradeModal({ onClose, onCreated, customColumns = [] }: AddTra
               <label className="block text-xs font-medium text-gray-300 mb-1">
                 Side
               </label>
-              <SideToggle value={side} onChange={setSide} />
+              <SideToggle value={side} onChange={setSide} layout="stack" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-300 mb-1">

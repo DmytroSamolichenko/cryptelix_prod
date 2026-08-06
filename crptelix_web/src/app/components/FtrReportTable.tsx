@@ -1,7 +1,8 @@
 import { TrendingUp, TrendingDown, ExternalLink } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { apiFetch } from '../lib/apiClient';
+import { useTradesSynced } from '../lib/useTradesSynced';
 
 export interface FtrReportPayload {
   total_profit_gross_minus_loss: number;
@@ -264,22 +265,25 @@ interface FtrReportTableProps {
 export function FtrReportTable({ onExtractMetric }: FtrReportTableProps) {
   const [rows, setRows] = useState<FtrReportRow[]>([]);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await apiFetch('/api/v1/trades/ftr-report');
-        if (!res.ok) {
-          setRows([]);
-          return;
-        }
-        const data = (await res.json()) as FtrReportPayload;
-        setRows(buildRows(data));
-      } catch {
+  const load = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/v1/trades/ftr-report');
+      if (!res.ok) {
         setRows([]);
+        return;
       }
-    };
-    void load();
+      const data = (await res.json()) as FtrReportPayload;
+      setRows(buildRows(data));
+    } catch {
+      setRows([]);
+    }
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useTradesSynced(load);
 
   return (
     <div className="space-y-0.5 pb-1">

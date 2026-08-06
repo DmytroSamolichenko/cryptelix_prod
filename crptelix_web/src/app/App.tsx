@@ -8,6 +8,7 @@ import { Widget } from './components/DashboardWidget';
 import { TopBar } from './components/TopBar';
 import { DataBase } from './components/DataBase';
 import { ConstructorBottomMenu } from './components/ConstructorBottomMenu';
+import { FeedbackSurveyHost } from './components/FeedbackSurveyHost';
 import { loadConstructorState, saveConstructorState } from './lib/dashboardStorage';
 import { DEFAULT_FONT_SIZE } from './components/CanvasTextElement';
 import { scalePx, scaleSize } from './lib/uiScale';
@@ -145,6 +146,7 @@ function App() {
       {(user, logout) => (
     <DndProvider backend={HTML5Backend}>
       <div className="flex h-screen min-h-0 flex-col bg-black">
+        <FeedbackSurveyHost userId={user.id} />
         {/* Top Bar */}
         <TopBar
           userEmail={user.email}
@@ -185,9 +187,9 @@ function App() {
             )}
           </div>
 
-          {/* Right Sidebar - AI Bot (overlay on narrow screens) */}
+          {/* Right Sidebar - AI Bot (overlay on narrow screens; z above floating bottom tools) */}
           {isChatOpen && (
-            <div className="absolute inset-y-0 right-0 z-40 w-full max-w-sm animate-in shadow-2xl slide-in-from-right duration-300 sm:relative sm:inset-auto sm:z-auto sm:w-80 sm:max-w-none sm:flex-shrink-0 sm:shadow-none">
+            <div className="pointer-events-auto absolute inset-y-0 right-0 z-50 w-full max-w-sm animate-in bg-[#0c0c0c] shadow-2xl slide-in-from-right duration-300 sm:relative sm:inset-auto sm:z-50 sm:w-80 sm:max-w-none sm:flex-shrink-0 sm:shadow-none">
               <AiBot />
             </div>
           )}
@@ -195,7 +197,7 @@ function App() {
           {/* Floating constructor tools — overlaid on canvas, no bar */}
           {currentView === 'constructor' && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 overflow-visible pb-3">
-              <div className="pointer-events-auto overflow-visible">
+              <div className="pointer-events-none overflow-visible">
                 <ConstructorBottomMenu
                   onWidgetsToggle={() => setIsWidgetsOpen(!isWidgetsOpen)}
                   onBrushToggle={() => setIsBrushActive((active) => !active)}

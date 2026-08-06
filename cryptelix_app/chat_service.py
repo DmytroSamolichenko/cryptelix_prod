@@ -295,7 +295,7 @@ def send_chat(
 
     if not session.title or not str(session.title).strip():
         snippet = text.replace("\n", " ").strip()
-        session.title = (snippet[:80] + ("…" if len(snippet) > 80 else "")) or "Chat"
+        session.title = (snippet[:80] + ("..." if len(snippet) > 80 else "")) or "Chat"
 
     system_content = CHAT_SYSTEM_PROMPT
     if message_needs_trades_context(text):
