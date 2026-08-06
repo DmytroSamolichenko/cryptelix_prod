@@ -863,7 +863,7 @@ export function DataBase() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-zinc-950">
       {/* Summary + actions */}
-      <div className="flex shrink-0 flex-col gap-3 px-4 pb-3 pt-4 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+      <div className="flex shrink-0 flex-col gap-3 px-4 pb-3 pt-5 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
         <DealBaseSummaryBar deals={sheet.deals} className="min-w-0 flex-1" />
 
         <div className="flex shrink-0 items-center justify-end gap-2 self-end">

@@ -248,19 +248,27 @@ export function AiBot() {
       {/* Chat History */}
       <div className="shrink-0 border-b border-zinc-800/60 px-3 pb-3 pt-3">
         <div className="mb-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Clock className="h-3.5 w-3.5 text-zinc-500" />
-            <div className="text-xs font-medium text-zinc-400">Chat history</div>
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full border border-yellow-400/80 bg-transparent shadow-[0_0_10px_rgba(250,204,21,0.18)]">
+              <Clock className="h-3.5 w-3.5 text-yellow-400" strokeWidth={2.25} />
+            </div>
+            <div className="text-sm font-medium tracking-wide text-zinc-200">History</div>
           </div>
-          <button
+          <motion.button
             type="button"
             onClick={handleNewChat}
-            className="rounded-full bg-yellow-400 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-yellow-300"
+            whileHover={{ scale: 1.04, boxShadow: '0 0 22px rgba(250,204,21,0.55)' }}
+            whileTap={{ scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 22 }}
+            className="rounded-full bg-yellow-400 px-3.5 py-1.5 text-xs font-semibold text-black shadow-[0_0_16px_rgba(250,204,21,0.4)]"
           >
             New chat
-          </button>
+          </motion.button>
         </div>
-        <div className="max-h-36 space-y-1.5 overflow-y-auto">
+
+        <div className="mb-3 h-px bg-zinc-800/80" />
+
+        <div className="max-h-40 space-y-2 overflow-y-auto pr-0.5">
           {loadingSessions ? (
             <div className="flex items-center gap-2 px-2 py-2 text-xs text-zinc-500">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -272,32 +280,43 @@ export function AiBot() {
             sessions.map((s) => {
               const active = activeSessionId === s.id;
               return (
-                <button
+                <motion.button
                   key={s.id}
                   type="button"
+                  whileHover={{
+                    backgroundColor: active
+                      ? 'rgba(39,39,42,1)'
+                      : 'rgba(63,63,70,0.75)',
+                  }}
+                  whileTap={{ scale: 0.985 }}
+                  transition={{ type: 'spring', stiffness: 480, damping: 28 }}
                   className={cn(
-                    'group flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-all',
+                    'group box-border flex w-full items-center gap-2.5 rounded-full border px-4 py-2.5 text-left',
                     active
-                      ? 'border-yellow-400/70 bg-transparent shadow-[0_0_0_1px_rgba(250,204,21,0.12)]'
-                      : 'border-transparent bg-transparent hover:border-zinc-800 hover:bg-zinc-900/40'
+                      ? 'border-yellow-400/85 bg-zinc-800/90 shadow-[0_0_14px_rgba(250,204,21,0.12)]'
+                      : 'border-transparent bg-zinc-800/55'
                   )}
                   onClick={() => handleSelectSession(s.id)}
                 >
                   <MessageSquare
                     className={cn(
-                      'h-3.5 w-3.5 shrink-0',
-                      active ? 'text-yellow-400' : 'text-zinc-500 group-hover:text-zinc-400'
+                      'h-3.5 w-3.5 shrink-0 transition-colors duration-200',
+                      active
+                        ? 'text-yellow-400'
+                        : 'text-zinc-500 group-hover:text-zinc-300'
                     )}
                   />
                   <div
                     className={cn(
-                      'min-w-0 truncate text-xs font-medium',
-                      active ? 'text-yellow-400' : 'text-zinc-400 group-hover:text-zinc-200'
+                      'min-w-0 flex-1 truncate text-xs font-medium transition-colors duration-200',
+                      active
+                        ? 'text-white'
+                        : 'text-zinc-400 group-hover:text-zinc-200'
                     )}
                   >
                     {s.title?.trim() || 'Untitled chat'}
                   </div>
-                </button>
+                </motion.button>
               );
             })
           )}
