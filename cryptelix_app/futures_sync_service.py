@@ -12,10 +12,11 @@ coin, so we convert them to a USD figure (via the fill price for trades, via a
 kline close for funding) into the `*_usd` columns while keeping the raw values.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Callable, Optional, Set, Tuple
+from typing import Callable, Dict, Optional, Set, Tuple
 
 import ccxt
 from sqlalchemy.orm import Session
@@ -28,6 +29,37 @@ logger = logging.getLogger("cryptelix")
 _INCOME_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 _DEFAULT_LOOKBACK_DAYS = 365
 _USER_TRADES_LIMIT = 1000
+
+# Rate-limit handling. Binance enforces a per-IP request cap (2400/min) and
+# answers 429/418 as ccxt.DDoSProtection. We retry the same request with
+# exponential backoff instead of skipping the window (which would drop trades),
+# and space requests out to avoid tripping the limit in the first place.
+_MAX_RATE_LIMIT_RETRIES = 6
+_RATE_LIMIT_BASE_SLEEP_S = 2.0
+_RATE_LIMIT_MAX_SLEEP_S = 60.0
+_REQUEST_SPACING_S = 0.3
+
+
+async def _rate_limited_call(func: Callable, *args, label: str = "", **kwargs):
+    """Call a ccxt coroutine, retrying on rate-limit (429/418) with backoff."""
+    delay = _RATE_LIMIT_BASE_SLEEP_S
+    for attempt in range(_MAX_RATE_LIMIT_RETRIES):
+        try:
+            return await func(*args, **kwargs)
+        except (ccxt.DDoSProtection, ccxt.RateLimitExceeded) as exc:
+            if attempt == _MAX_RATE_LIMIT_RETRIES - 1:
+                raise
+            logger.warning(
+                "Rate limited [%s], retry %d/%d after %.1fs: %s",
+                label,
+                attempt + 1,
+                _MAX_RATE_LIMIT_RETRIES,
+                delay,
+                exc,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, _RATE_LIMIT_MAX_SLEEP_S)
+    raise RuntimeError(f"Rate-limit retries exhausted for {label}")
 
 
 def _to_decimal(value: object) -> Decimal:
@@ -155,20 +187,27 @@ def _insert_futures_fill(
 
 async def _discover_symbols(
     income_method: Callable, start_ms: int, end_ms: int, label: str
-) -> Set[str]:
-    """Raw market ids with realized-PnL activity from a futures income endpoint."""
-    symbols: Set[str] = set()
+) -> Dict[str, Tuple[int, int]]:
+    """Raw market ids with realized-PnL activity, mapped to their (min, max) time.
+
+    The time range lets the backfill query only the windows a symbol was actually
+    traded in, instead of scanning the whole lookback for every symbol (which is
+    what trips Binance's per-IP rate limit).
+    """
+    ranges: Dict[str, Tuple[int, int]] = {}
     cursor = start_ms
     while cursor < end_ms:
         window_end = min(cursor + _INCOME_WINDOW_MS, end_ms)
         try:
-            records = await income_method(
+            records = await _rate_limited_call(
+                income_method,
                 {
                     "incomeType": "REALIZED_PNL",
                     "startTime": cursor,
                     "endTime": window_end,
                     "limit": 1000,
-                }
+                },
+                label=f"income-discovery {label}",
             )
         except ccxt.BaseError as exc:
             logger.warning(
@@ -180,10 +219,14 @@ async def _discover_symbols(
             break
         for rec in records or []:
             sym = (rec.get("symbol") or "").strip()
-            if sym:
-                symbols.add(sym)
+            if not sym:
+                continue
+            t = int(rec.get("time") or 0)
+            lo, hi = ranges.get(sym, (t, t))
+            ranges[sym] = (min(lo, t), max(hi, t))
         cursor = window_end + 1
-    return symbols
+        await asyncio.sleep(_REQUEST_SPACING_S)
+    return ranges
 
 
 async def _backfill_symbol(
@@ -209,11 +252,13 @@ async def _backfill_symbol(
     while cursor < end_ms:
         window_end = min(cursor + _INCOME_WINDOW_MS, end_ms)
         try:
-            trades = await client.fetch_my_trades(
+            trades = await _rate_limited_call(
+                client.fetch_my_trades,
                 symbol=symbol,
                 since=cursor,
                 limit=_USER_TRADES_LIMIT,
                 params={"endTime": window_end, "recvWindow": 60000},
+                label=f"userTrades {symbol}",
             )
         except ccxt.BaseError as exc:
             logger.warning(
@@ -228,6 +273,7 @@ async def _backfill_symbol(
             if _insert_futures_fill(db, user_id, exchange_name, t, market, seen):
                 created += 1
         cursor = window_end + 1
+        await asyncio.sleep(_REQUEST_SPACING_S)
 
     try:
         db.commit()
@@ -240,7 +286,14 @@ async def _backfill_symbol(
 async def _kline_close_usd(client, symbol: str, at_ms: int) -> Optional[Decimal]:
     """Best-effort USD price of a futures symbol at a timestamp (for COIN-M fx)."""
     try:
-        candles = await client.fetch_ohlcv(symbol, "1m", since=at_ms, limit=1)
+        candles = await _rate_limited_call(
+            client.fetch_ohlcv,
+            symbol,
+            "1m",
+            since=at_ms,
+            limit=1,
+            label=f"ohlcv {symbol}",
+        )
         if candles:
             return _to_decimal(candles[0][4])
     except Exception:
@@ -267,13 +320,15 @@ async def _import_funding(
         while cursor < end_ms:
             window_end = min(cursor + _INCOME_WINDOW_MS, end_ms)
             try:
-                records = await method(
+                records = await _rate_limited_call(
+                    method,
                     {
                         "incomeType": "FUNDING_FEE",
                         "startTime": cursor,
                         "endTime": window_end,
                         "limit": 1000,
-                    }
+                    },
+                    label=f"funding {label}",
                 )
             except ccxt.BaseError as exc:
                 logger.warning(
@@ -338,6 +393,7 @@ async def _import_funding(
                 )
                 created += 1
             cursor = window_end + 1
+            await asyncio.sleep(_REQUEST_SPACING_S)
 
     try:
         db.commit()
@@ -372,26 +428,37 @@ async def backfill_futures_trades(
         ("coinm", getattr(client, "dapiPrivateGetIncome", None)),
     ]
 
-    raw_symbols: Set[str] = set()
+    symbol_ranges: Dict[str, Tuple[int, int]] = {}
     for label, method in income_sources:
         if method is None:
             continue
-        raw_symbols |= await _discover_symbols(method, start_ms, now_ms, label)
+        for sym, (lo, hi) in (
+            await _discover_symbols(method, start_ms, now_ms, label)
+        ).items():
+            cur = symbol_ranges.get(sym)
+            symbol_ranges[sym] = (
+                (min(cur[0], lo), max(cur[1], hi)) if cur else (lo, hi)
+            )
 
     stats = {
-        "symbols_discovered": len(raw_symbols),
+        "symbols_discovered": len(symbol_ranges),
         "symbols_synced": 0,
         "fills_created": 0,
         "funding_created": 0,
     }
     total_created = 0
-    for raw in sorted(raw_symbols):
+    for raw in sorted(symbol_ranges):
         market = _resolve_futures_market(client, raw)
         if not market:
             logger.warning("Could not resolve futures market for id=%s", raw)
             continue
+        # Only scan windows around this symbol's activity (± one window margin so
+        # an opening fill that precedes the first realized-PnL close is covered).
+        lo, hi = symbol_ranges[raw]
+        sym_start = max(start_ms, lo - _INCOME_WINDOW_MS)
+        sym_end = min(now_ms, hi + _INCOME_WINDOW_MS)
         total_created += await _backfill_symbol(
-            db, client, user_id, exchange_name, market, start_ms, now_ms
+            db, client, user_id, exchange_name, market, sym_start, sym_end
         )
         stats["symbols_synced"] += 1
 

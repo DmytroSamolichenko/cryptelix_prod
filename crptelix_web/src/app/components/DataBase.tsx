@@ -236,12 +236,11 @@ const FUTURES_COLUMN_IDS = [
   'liquidationPrice',
 ] as const;
 
+// Leverage / Margin / Liq. Price are intentionally hidden for now (no reliable
+// per-closed-trade source yet); their data columns still exist in FUTURES_COLUMN_IDS.
 const FUTURES_COLUMNS: Column[] = [
   { id: 'funding', name: 'Funding', type: 'number', width: 130 },
   { id: 'netPnlExFunding', name: 'Net (ex-fund)', type: 'number', width: 140 },
-  { id: 'leverage', name: 'Leverage', type: 'text', width: 110 },
-  { id: 'marginMode', name: 'Margin', type: 'text', width: 110 },
-  { id: 'liquidationPrice', name: 'Liq. Price', type: 'number', width: 130 },
 ];
 
 function isFuturesDisplayColumn(columnId: string): boolean {
@@ -253,6 +252,15 @@ function marketTypeLabel(marketType: unknown): string | null {
   if (v === 'usdm') return 'USDT-M';
   if (v === 'coinm') return 'COIN-M';
   return null;
+}
+
+/** Per-market badge palette: USDT-M green, COIN-M blue. */
+function marketBadgeClass(marketType: unknown): string {
+  const v = String(marketType ?? '').toLowerCase();
+  if (v === 'usdm') {
+    return 'text-green-400/90 bg-green-500/10 border-green-500/30';
+  }
+  return 'text-sky-400/90 bg-sky-500/10 border-sky-500/30';
 }
 
 function signedNumberDisplay(raw: string | null | undefined, decimals: number): string {
@@ -353,6 +361,7 @@ function apiTradeToDeal(api: ApiTrade, index: number, customColumns: CustomColum
     notes: api.notes ?? '',
     ai_report: isAiReportEmpty(api.ai_report) ? '' : String(api.ai_report),
     accountType: api.account_type ?? 'spot',
+    exchangeName: api.exchange_name ?? null,
     marketType: api.market_type ?? null,
     funding: signedNumberDisplay(api.funding, 4),
     netPnlExFunding: signedNumberDisplay(api.net_pnl_ex_funding, 2),
@@ -1127,16 +1136,20 @@ export function DataBase() {
                       ) : column.id === 'pair' ? (
                         <div className="flex items-center gap-1.5 px-2 py-1 min-w-0">
                           <span className="truncate text-gray-300">{String(deal.pair ?? '')}</span>
-                          {marketTypeLabel(deal.marketType) ? (
-                            <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-400/90 bg-sky-500/10 border border-sky-500/30 rounded">
+                          {(String(deal.exchangeName ?? '').toLowerCase() === 'binance' ||
+                            deal.isWacTrade) && (
+                            <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-500/90 bg-yellow-500/10 border border-yellow-500/30 rounded">
+                              Binance
+                            </span>
+                          )}
+                          {marketTypeLabel(deal.marketType) && (
+                            <span
+                              className={`shrink-0 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide border rounded ${marketBadgeClass(
+                                deal.marketType
+                              )}`}
+                            >
                               {marketTypeLabel(deal.marketType)}
                             </span>
-                          ) : (
-                            deal.isWacTrade && (
-                              <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-500/90 bg-yellow-500/10 border border-yellow-500/30 rounded">
-                                Binance
-                              </span>
-                            )
                           )}
                         </div>
                       ) : (
