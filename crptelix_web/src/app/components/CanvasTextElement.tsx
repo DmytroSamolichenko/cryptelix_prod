@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Bold,
   GripVertical,
@@ -10,6 +11,7 @@ import {
   Plus,
   Strikethrough,
   Underline,
+  Unlink,
   X,
 } from 'lucide-react';
 import { scalePx } from '../lib/uiScale';
@@ -38,18 +40,16 @@ type InteractionMode = 'idle' | 'drag' | 'resize';
 const MIN_WIDTH = 120;
 const MIN_HEIGHT = 48;
 export const DEFAULT_FONT_SIZE = scalePx(14);
-const FONT_SIZE_OPTIONS = [10, 12, 14, 16, 18, 20, 24, 32].map((n) => scalePx(n));
+/** Logical sizes shown in the toolbar; stored values are scalePx(logical). */
+const FONT_SIZE_LOGICAL = [10, 12, 14, 16, 18, 20, 24, 32] as const;
+const FONT_SIZE_OPTIONS = FONT_SIZE_LOGICAL.map((n) => scalePx(n));
 const SAVE_DEBOUNCE_MS = 400;
 
 const RESIZE_HANDLES: { id: ResizeHandle; className: string; cursor: string }[] = [
   { id: 'nw', className: 'top-0 left-0 -translate-x-1/2 -translate-y-1/2', cursor: 'cursor-nw-resize' },
-  { id: 'n', className: 'top-0 left-1/2 -translate-x-1/2 -translate-y-1/2', cursor: 'cursor-n-resize' },
   { id: 'ne', className: 'top-0 right-0 translate-x-1/2 -translate-y-1/2', cursor: 'cursor-ne-resize' },
-  { id: 'e', className: 'top-1/2 right-0 translate-x-1/2 -translate-y-1/2', cursor: 'cursor-e-resize' },
   { id: 'se', className: 'bottom-0 right-0 translate-x-1/2 translate-y-1/2', cursor: 'cursor-se-resize' },
-  { id: 's', className: 'bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2', cursor: 'cursor-s-resize' },
   { id: 'sw', className: 'bottom-0 left-0 -translate-x-1/2 translate-y-1/2', cursor: 'cursor-sw-resize' },
-  { id: 'w', className: 'top-1/2 left-0 -translate-x-1/2 -translate-y-1/2', cursor: 'cursor-w-resize' },
 ];
 
 export interface CanvasTextElementProps {
@@ -82,6 +82,350 @@ function clearTextSelection() {
 
 function execFormat(command: string, value?: string) {
   document.execCommand(command, false, value);
+}
+
+function normalizeLinkUrl(raw: string): string {
+  const url = raw.trim();
+  if (!url) return '';
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) return url;
+  return `https://${url}`;
+}
+
+type SelectionSnapshot = {
+  start: number;
+  end: number;
+  text: string;
+};
+
+function getNodeTextOffset(root: HTMLElement, targetNode: Node, targetOffset: number): number {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let total = 0;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    if (node === targetNode) return total + targetOffset;
+    total += node.textContent?.length ?? 0;
+  }
+
+  // Element boundary: count text before this element within root.
+  if (targetNode.nodeType === Node.ELEMENT_NODE) {
+    const walker2 = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let n: Node | null;
+    while ((n = walker2.nextNode())) {
+      if (!targetNode.contains(n) && !(targetNode.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+        total = 0;
+      }
+    }
+    const pre = document.createRange();
+    pre.selectNodeContents(root);
+    try {
+      pre.setEnd(targetNode, Math.min(targetOffset, targetNode.childNodes.length));
+      return pre.toString().length;
+    } catch {
+      return 0;
+    }
+  }
+  return total;
+}
+
+function snapshotSelection(container: HTMLElement): SelectionSnapshot | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  if (!container.contains(range.commonAncestorContainer)) return null;
+
+  const start = getNodeTextOffset(container, range.startContainer, range.startOffset);
+  const end = getNodeTextOffset(container, range.endContainer, range.endOffset);
+  return {
+    start: Math.min(start, end),
+    end: Math.max(start, end),
+    text: range.toString().replace(/\u00a0/g, ' '),
+  };
+}
+
+function rangeFromSnapshot(container: HTMLElement, snap: SelectionSnapshot): Range | null {
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let remainingStart = snap.start;
+  let remainingEnd = snap.end;
+  let startNode: Text | null = null;
+  let startOffset = 0;
+  let endNode: Text | null = null;
+  let endOffset = 0;
+  let node: Node | null;
+
+  while ((node = walker.nextNode())) {
+    const text = node as Text;
+    const len = text.data.length;
+
+    if (!startNode) {
+      if (remainingStart <= len) {
+        startNode = text;
+        startOffset = remainingStart;
+      } else {
+        remainingStart -= len;
+      }
+    }
+
+    if (!endNode) {
+      if (remainingEnd <= len) {
+        endNode = text;
+        endOffset = remainingEnd;
+        break;
+      }
+      remainingEnd -= len;
+    } else if (startNode) {
+      break;
+    }
+  }
+
+  if (!startNode) {
+    // Empty editor or caret at very end with no text nodes
+    const range = document.createRange();
+    range.selectNodeContents(container);
+    range.collapse(snap.start === 0);
+    if (snap.start > 0) range.collapse(false);
+    return range;
+  }
+  if (!endNode) {
+    endNode = startNode;
+    endOffset = startNode.data.length;
+  }
+
+  const range = document.createRange();
+  range.setStart(startNode, Math.min(startOffset, startNode.data.length));
+  range.setEnd(endNode, Math.min(endOffset, endNode.data.length));
+  return range;
+}
+
+function restoreSnapshot(container: HTMLElement, snap: SelectionSnapshot | null): Range | null {
+  if (!snap) return null;
+  const range = rangeFromSnapshot(container, snap);
+  if (!range) return null;
+  const sel = window.getSelection();
+  if (!sel) return range;
+  sel.removeAllRanges();
+  sel.addRange(range);
+  return range;
+}
+
+function findAnchorForSnapshot(container: HTMLElement, snap: SelectionSnapshot | null): HTMLAnchorElement | null {
+  if (!snap) return null;
+  const range = rangeFromSnapshot(container, snap);
+  if (!range) return null;
+
+  const startEl = (
+    range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? range.startContainer
+      : range.startContainer.parentElement
+  ) as HTMLElement | null;
+  const anchor = startEl?.closest?.('a') as HTMLAnchorElement | null;
+  if (!anchor || !container.contains(anchor)) return null;
+
+  // Caret inside the link → edit/remove that link
+  if (snap.start === snap.end) return anchor;
+
+  // Only treat as editing that link if the selection is the whole linked text
+  const full = (anchor.textContent ?? '').replace(/\u00a0/g, ' ').trim();
+  if (snap.text.trim() === full) return anchor;
+
+  return null;
+}
+
+function decorateAnchorsInRange(container: HTMLElement, range: Range, href: string) {
+  const anchors = [...container.querySelectorAll('a')];
+  for (const anchor of anchors) {
+    const ar = document.createRange();
+    ar.selectNodeContents(anchor);
+    const intersects =
+      range.compareBoundaryPoints(Range.END_TO_START, ar) < 0 &&
+      range.compareBoundaryPoints(Range.START_TO_END, ar) > 0;
+    if (!intersects) continue;
+    anchor.href = href;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+  }
+}
+
+/** Wrap only the selected range in a link (or insert at caret). */
+function applyLinkInEditable(
+  container: HTMLElement,
+  rawUrl: string,
+  displayText: string,
+  snap: SelectionSnapshot | null,
+  existingAnchor: HTMLAnchorElement | null
+): boolean {
+  const href = normalizeLinkUrl(rawUrl);
+  if (!href) return false;
+
+  container.focus();
+
+  // Edit existing link only when caret is inside it, or the selection is exactly that link's text
+  if (existingAnchor && container.contains(existingAnchor)) {
+    const isCaret = !snap || snap.start === snap.end;
+    const isFullLink =
+      Boolean(snap) &&
+      snap!.text.trim() === (existingAnchor.textContent ?? '').replace(/\u00a0/g, ' ').trim();
+    if (isCaret || isFullLink) {
+      existingAnchor.href = href;
+      existingAnchor.target = '_blank';
+      existingAnchor.rel = 'noopener noreferrer';
+      if (displayText.trim()) existingAnchor.textContent = displayText.trim();
+      return true;
+    }
+  }
+
+  const range = restoreSnapshot(container, snap);
+  if (!range) {
+    const endRange = document.createRange();
+    endRange.selectNodeContents(container);
+    endRange.collapse(false);
+    const a = document.createElement('a');
+    a.href = href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = displayText.trim() || href.replace(/^https?:\/\//i, '');
+    endRange.insertNode(a);
+    return true;
+  }
+
+  const selected = range.toString();
+  const label = displayText.trim() || selected || href.replace(/^https?:\/\//i, '');
+
+  if (range.collapsed) {
+    const a = document.createElement('a');
+    a.href = href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = label;
+    range.insertNode(a);
+    const sel = window.getSelection();
+    if (sel) {
+      const after = document.createRange();
+      after.setStartAfter(a);
+      after.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(after);
+    }
+    return true;
+  }
+
+  // Custom display text different from selection → replace only the selected slice
+  if (displayText.trim() && displayText.trim() !== selected.replace(/\u00a0/g, ' ').trim()) {
+    range.deleteContents();
+    const a = document.createElement('a');
+    a.href = href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = label;
+    range.insertNode(a);
+    return true;
+  }
+
+  // Wrap exactly the restored selection (word / letter), not the whole block
+  const beforeHtml = container.innerHTML;
+  const ok = document.execCommand('createLink', false, href);
+  if (ok) {
+    const live = window.getSelection();
+    if (live && live.rangeCount > 0) {
+      decorateAnchorsInRange(container, live.getRangeAt(0), href);
+    } else {
+      decorateAnchorsInRange(container, range, href);
+    }
+    return true;
+  }
+
+  // Fallback if execCommand is unavailable
+  container.innerHTML = beforeHtml;
+  const retry = restoreSnapshot(container, snap);
+  if (!retry || retry.collapsed) return false;
+  const a = document.createElement('a');
+  a.href = href;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  try {
+    retry.surroundContents(a);
+  } catch {
+    const contents = retry.extractContents();
+    a.appendChild(contents);
+    retry.insertNode(a);
+  }
+  return true;
+}
+
+function unlinkInEditable(
+  container: HTMLElement,
+  snap: SelectionSnapshot | null,
+  existingAnchor: HTMLAnchorElement | null
+): boolean {
+  container.focus();
+
+  const unwrap = (anchor: HTMLAnchorElement) => {
+    const parent = anchor.parentNode;
+    if (!parent) return;
+    while (anchor.firstChild) {
+      parent.insertBefore(anchor.firstChild, anchor);
+    }
+    parent.removeChild(anchor);
+    parent.normalize();
+  };
+
+  const range = restoreSnapshot(container, snap);
+
+  // Partial selection → unlink only that slice (keeps the rest of the link)
+  if (range && !range.collapsed) {
+    if (document.execCommand('unlink')) return true;
+
+    // Fallback: unwrap intersecting anchors only when selection covers them fully;
+    // otherwise split by extracting the selected middle as plain text.
+    const anchors = [...container.querySelectorAll('a')];
+    let changed = false;
+    for (const anchor of anchors) {
+      const ar = document.createRange();
+      ar.selectNodeContents(anchor);
+      const intersects =
+        range.compareBoundaryPoints(Range.END_TO_START, ar) < 0 &&
+        range.compareBoundaryPoints(Range.START_TO_END, ar) > 0;
+      if (!intersects) continue;
+
+      const coversAll =
+        range.compareBoundaryPoints(Range.START_TO_START, ar) <= 0 &&
+        range.compareBoundaryPoints(Range.END_TO_END, ar) >= 0;
+      if (coversAll) {
+        unwrap(anchor);
+        changed = true;
+      } else {
+        const mid = range.extractContents();
+        const holder = document.createElement('span');
+        holder.appendChild(mid);
+        range.insertNode(holder);
+        while (holder.firstChild) {
+          holder.parentNode?.insertBefore(holder.firstChild, holder);
+        }
+        holder.remove();
+        // Clean empty leftover anchors
+        if (!(anchor.textContent ?? '').trim()) unwrap(anchor);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  // Caret inside a link → remove that whole link
+  if (existingAnchor && container.contains(existingAnchor)) {
+    unwrap(existingAnchor);
+    return true;
+  }
+
+  if (range?.collapsed) {
+    const node = range.startContainer;
+    const el = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement) as HTMLElement | null;
+    const anchor = el?.closest?.('a') as HTMLAnchorElement | null;
+    if (anchor && container.contains(anchor)) {
+      unwrap(anchor);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function stripNestedFontSizes(root: HTMLElement) {
@@ -176,12 +520,14 @@ function TextFormatToolbar({
   onFontSizeChange,
   onFormat,
   onInsertLink,
+  onLinkMouseDown,
   onToolbarPointerDown,
 }: {
   fontSize: number;
   onFontSizeChange: (size: number) => void;
   onFormat: (command: string) => void;
   onInsertLink: () => void;
+  onLinkMouseDown?: () => void;
   onToolbarPointerDown?: () => void;
 }) {
   const currentIndex = FONT_SIZE_OPTIONS.indexOf(fontSize);
@@ -217,9 +563,9 @@ function TextFormatToolbar({
         className="h-7 max-w-[52px] cursor-pointer rounded border border-zinc-700 bg-zinc-800 px-1 text-xs text-zinc-200 outline-none"
         title="Font size"
       >
-        {FONT_SIZE_OPTIONS.map((size) => (
-          <option key={size} value={size}>
-            {size}
+        {FONT_SIZE_LOGICAL.map((logical, i) => (
+          <option key={logical} value={FONT_SIZE_OPTIONS[i]}>
+            {logical}
           </option>
         ))}
       </select>
@@ -258,7 +604,7 @@ function TextFormatToolbar({
       <ToolbarButton title="Numbered list" onClick={() => onFormat('insertOrderedList')}>
         <ListOrdered className="h-3.5 w-3.5" />
       </ToolbarButton>
-      <ToolbarButton title="Link" onClick={onInsertLink}>
+      <ToolbarButton title="Link" onClick={onInsertLink} onBeforeMouseDown={onLinkMouseDown}>
         <Link2 className="h-3.5 w-3.5" />
       </ToolbarButton>
     </div>
@@ -269,16 +615,21 @@ function ToolbarButton({
   children,
   title,
   onClick,
+  onBeforeMouseDown,
 }: {
   children: ReactNode;
   title: string;
   onClick: () => void;
+  onBeforeMouseDown?: () => void;
 }) {
   return (
     <button
       type="button"
       title={title}
-      onMouseDown={(e) => e.preventDefault()}
+      onMouseDown={(e) => {
+        onBeforeMouseDown?.();
+        e.preventDefault();
+      }}
       onClick={onClick}
       className="flex h-7 w-7 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
     >
@@ -313,6 +664,13 @@ export function CanvasTextElement({
   const pendingCommandRef = useRef<string | null>(null);
   const pendingLinkRef = useRef(false);
   const resizeHandleRef = useRef<ResizeHandle>('se');
+  const fontSizeRef = useRef(nearestFontSize(fontSize));
+  const linkSnapRef = useRef<SelectionSnapshot | null>(null);
+  const linkAnchorRef = useRef<HTMLAnchorElement | null>(null);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('https://');
+  const [linkText, setLinkText] = useState('');
+  const [linkHasExisting, setLinkHasExisting] = useState(false);
   const dragStartRef = useRef({
     clientX: 0,
     clientY: 0,
@@ -330,6 +688,10 @@ export function CanvasTextElement({
   const isEmpty = isHtmlEmpty(committedHtml);
   const normalizedFontSize = nearestFontSize(fontSize);
   const [showPlaceholder, setShowPlaceholder] = useState(isEmpty);
+
+  useEffect(() => {
+    fontSizeRef.current = normalizedFontSize;
+  }, [normalizedFontSize]);
 
   useEffect(() => {
     isEditingRef.current = isEditing;
@@ -351,17 +713,17 @@ export function CanvasTextElement({
   }, [isEditing, isEmpty]);
 
   const buildState = useCallback(
-    (nextHtml: string, nextFontSize = normalizedFontSize): TextElementState => ({
+    (nextHtml: string, nextFontSize?: number): TextElementState => ({
       id,
       html: nextHtml,
       text: htmlToPlainText(nextHtml),
-      fontSize: nextFontSize,
+      fontSize: nextFontSize ?? fontSizeRef.current,
       x,
       y,
       width,
       height,
     }),
-    [id, normalizedFontSize, x, y, width, height]
+    [id, x, y, width, height]
   );
 
   const readDraftHtml = useCallback(() => {
@@ -420,11 +782,15 @@ export function CanvasTextElement({
       scheduleSave();
     } else if (pendingLinkRef.current) {
       pendingLinkRef.current = false;
-      const url = window.prompt('Enter link URL');
-      if (url?.trim()) {
-        execFormat('createLink', url.trim());
-        scheduleSave();
-      }
+      // Avoid browsers selecting all on focus — insert link at caret/end instead
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      linkSnapRef.current = snapshotSelection(el);
+      openLinkDialog();
     } else if (!isHtmlEmpty(seedHtml)) {
       const range = document.createRange();
       range.selectNodeContents(el);
@@ -448,6 +814,8 @@ export function CanvasTextElement({
       if (!root || !target) return;
       if (root.contains(target)) return;
       if ((event.target as HTMLElement).closest?.('.text-format-toolbar')) return;
+      if ((event.target as HTMLElement).closest?.('.text-link-dialog')) return;
+      if (linkDialogOpen) return;
       if (editEndCommittedRef.current) return;
 
       window.clearTimeout(saveTimerRef.current);
@@ -460,7 +828,7 @@ export function CanvasTextElement({
       document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
       document.removeEventListener('touchstart', handleOutsidePointerDown, true);
     };
-  }, [isEditing, commitText]);
+  }, [isEditing, commitText, linkDialogOpen]);
 
   useEffect(() => {
     if (!isInteracting) return;
@@ -519,7 +887,7 @@ export function CanvasTextElement({
           id,
           text,
           html,
-          fontSize: normalizedFontSize,
+          fontSize: fontSizeRef.current,
           x: start.x + dx,
           y: start.y + dy,
           width,
@@ -539,7 +907,7 @@ export function CanvasTextElement({
           id,
           text,
           html,
-          fontSize: normalizedFontSize,
+          fontSize: fontSizeRef.current,
           x: box.x,
           y: box.y,
           width: box.width,
@@ -595,6 +963,12 @@ export function CanvasTextElement({
 
   const handleActivate = (e: React.MouseEvent) => {
     e.stopPropagation();
+    const anchor = (e.target as HTMLElement | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+    if (anchor?.href && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      window.open(anchor.href, '_blank', 'noopener,noreferrer');
+      return;
+    }
     onSelect();
     onStartEdit();
   };
@@ -602,16 +976,20 @@ export function CanvasTextElement({
   const handleBlur = (e: React.FocusEvent<HTMLDivElement>) => {
     if (!isEditingRef.current) return;
     if (editEndCommittedRef.current) return;
+    if (linkDialogOpen) return;
 
     const related = e.relatedTarget as HTMLElement | null;
     if (related?.closest('.text-format-toolbar')) return;
+    if (related?.closest('.text-link-dialog')) return;
 
     const capturedHtml = readDraftHtml();
 
     window.setTimeout(() => {
       if (editEndCommittedRef.current) return;
       if (suppressBlurCommitRef.current) return;
+      if (linkDialogOpen) return;
       if (document.activeElement?.closest('.text-format-toolbar')) return;
+      if (document.activeElement?.closest('.text-link-dialog')) return;
       window.clearTimeout(saveTimerRef.current);
       commitTextWithHtml(capturedHtml, true);
     }, 0);
@@ -634,6 +1012,10 @@ export function CanvasTextElement({
     e.stopPropagation();
     if (e.key === 'Escape') {
       e.preventDefault();
+      if (linkDialogOpen) {
+        closeLinkDialog();
+        return;
+      }
       if (editableRef.current) editableRef.current.innerHTML = html;
       setShowPlaceholder(isHtmlEmpty(html));
       window.clearTimeout(saveTimerRef.current);
@@ -654,6 +1036,7 @@ export function CanvasTextElement({
 
   const handleFontSizeChange = (size: number) => {
     const nextSize = nearestFontSize(size);
+    fontSizeRef.current = nextSize;
     const el = editableRef.current;
 
     if (isEditing && el) {
@@ -673,12 +1056,63 @@ export function CanvasTextElement({
       const nextHtml = normalizeCommittedHtml(el.innerHTML);
       draftHtmlRef.current = nextHtml;
       setShowPlaceholder(isHtmlEmpty(nextHtml));
+      window.clearTimeout(saveTimerRef.current);
       onUpdate(buildState(nextHtml, nextSize));
-      scheduleSave();
       return;
     }
 
     onUpdate({ id, text, html: committedHtml, fontSize: nextSize, x, y, width, height });
+  };
+
+  const openLinkDialog = () => {
+    const el = editableRef.current;
+    if (!el) return;
+
+    suppressBlurCommitRef.current = true;
+    // Prefer snapshot from Link button mousedown (selection still alive)
+    const snap = linkSnapRef.current ?? snapshotSelection(el);
+    linkSnapRef.current = snap;
+    const anchor = findAnchorForSnapshot(el, snap);
+    linkAnchorRef.current = anchor;
+
+    const selected = (snap?.text ?? '').replace(/\u00a0/g, ' ').trim();
+    setLinkUrl(anchor?.getAttribute('href') || 'https://');
+    // Prefer exact selection; only fall back to full anchor text when caret is inside a link
+    setLinkText(
+      selected ||
+        (snap && snap.start === snap.end && anchor
+          ? (anchor.textContent ?? '').replace(/\u00a0/g, ' ').trim()
+          : '')
+    );
+    setLinkHasExisting(Boolean(anchor));
+    setLinkDialogOpen(true);
+  };
+
+  const closeLinkDialog = () => {
+    setLinkDialogOpen(false);
+    linkSnapRef.current = null;
+    linkAnchorRef.current = null;
+    window.setTimeout(() => {
+      suppressBlurCommitRef.current = false;
+    }, 100);
+    editableRef.current?.focus();
+  };
+
+  const persistEditorHtml = () => {
+    const el = editableRef.current;
+    if (!el) return;
+    const nextHtml = normalizeCommittedHtml(el.innerHTML);
+    draftHtmlRef.current = nextHtml;
+    setShowPlaceholder(isHtmlEmpty(nextHtml));
+    window.clearTimeout(saveTimerRef.current);
+    onUpdate(buildState(nextHtml));
+  };
+
+  const captureLinkSelection = () => {
+    const el = editableRef.current;
+    if (!el) return;
+    suppressBlurCommitRef.current = true;
+    linkSnapRef.current = snapshotSelection(el);
   };
 
   const handleInsertLink = () => {
@@ -687,12 +1121,31 @@ export function CanvasTextElement({
       onStartEdit();
       return;
     }
-    editableRef.current?.focus();
-    const url = window.prompt('Enter link URL');
-    if (url?.trim()) {
-      execFormat('createLink', url.trim());
-      scheduleSave();
-    }
+    openLinkDialog();
+  };
+
+  const handleSaveLink = () => {
+    const el = editableRef.current;
+    if (!el || !linkUrl.trim()) return;
+
+    const ok = applyLinkInEditable(
+      el,
+      linkUrl,
+      linkText,
+      linkSnapRef.current,
+      linkAnchorRef.current
+    );
+    if (ok) persistEditorHtml();
+    closeLinkDialog();
+  };
+
+  const handleRemoveLink = () => {
+    const el = editableRef.current;
+    if (!el) return;
+
+    const ok = unlinkInEditable(el, linkSnapRef.current, linkAnchorRef.current);
+    if (ok) persistEditorHtml();
+    closeLinkDialog();
   };
 
   const contentStyle = {
@@ -703,6 +1156,7 @@ export function CanvasTextElement({
     whiteSpace: 'pre-wrap' as const,
     wordBreak: 'break-word' as const,
     caretColor: '#facc15',
+    textAlign: 'center' as const,
   };
 
   return (
@@ -741,7 +1195,7 @@ export function CanvasTextElement({
       <div
         className={`relative h-full w-full overflow-hidden rounded-sm ${
           isSelected
-            ? 'ring-2 ring-yellow-400/90 ring-offset-2 ring-offset-zinc-950'
+            ? 'border border-zinc-600/80'
             : 'hover:ring-1 hover:ring-zinc-600/60'
         }`}
       >
@@ -755,12 +1209,12 @@ export function CanvasTextElement({
               onInput={handleInput}
               onKeyDown={handleKeyDown}
               onMouseDown={(e) => e.stopPropagation()}
-              className="canvas-text-editable widget-scrollbar relative z-10 h-full w-full overflow-y-auto px-2 py-1.5 text-gray-300 outline-none"
+              className="canvas-text-editable widget-scrollbar relative z-10 flex h-full w-full items-center justify-center overflow-y-auto px-2 py-1.5 text-center text-gray-300 outline-none"
               style={contentStyle}
             />
             {showPlaceholder && (
               <div
-                className="pointer-events-none absolute inset-0 z-0 px-2 py-1.5 text-zinc-500"
+                className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center px-2 py-1.5 text-center text-zinc-500"
                 style={contentStyle}
                 aria-hidden
               >
@@ -770,7 +1224,7 @@ export function CanvasTextElement({
           </>
         ) : (
           <div
-            className={`canvas-text-display relative h-full w-full overflow-hidden px-2 py-1.5 ${
+            className={`canvas-text-display relative flex h-full w-full items-center justify-center overflow-hidden px-2 py-1.5 text-center ${
               isSelected ? 'cursor-text' : 'cursor-default'
             } ${isEmpty ? 'text-zinc-500' : 'text-gray-300'}`}
             style={contentStyle}
@@ -784,7 +1238,6 @@ export function CanvasTextElement({
 
       {isSelected && (
         <>
-          <div className="pointer-events-none absolute inset-0 rounded-sm border border-yellow-400/50" />
           {RESIZE_HANDLES.map(({ id: handleId, className, cursor }) => (
             <div
               key={handleId}
@@ -797,10 +1250,117 @@ export function CanvasTextElement({
             onFontSizeChange={handleFontSizeChange}
             onFormat={handleFormat}
             onInsertLink={handleInsertLink}
+            onLinkMouseDown={captureLinkSelection}
             onToolbarPointerDown={handleToolbarPointerDown}
           />
         </>
       )}
+
+      {linkDialogOpen &&
+        createPortal(
+          <div
+            className="text-link-dialog fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-4"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) closeLinkDialog();
+            }}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-950 p-5 shadow-[0_0_40px_rgba(0,0,0,0.65)]"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-white">
+                    {linkHasExisting ? 'Edit link' : 'Add link'}
+                  </h3>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Set the URL and how the link text should look.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeLinkDialog}
+                  className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <label className="mb-3 block">
+                <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                  Link URL
+                </span>
+                <input
+                  type="url"
+                  value={linkUrl}
+                  onChange={(e) => setLinkUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSaveLink();
+                    }
+                  }}
+                  autoFocus
+                  placeholder="https://example.com"
+                  className="h-10 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/15"
+                />
+              </label>
+
+              <label className="mb-5 block">
+                <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                  Display text
+                </span>
+                <input
+                  type="text"
+                  value={linkText}
+                  onChange={(e) => setLinkText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSaveLink();
+                    }
+                  }}
+                  placeholder="Text shown on the canvas"
+                  className="h-10 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/15"
+                />
+              </label>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                {linkHasExisting ? (
+                  <button
+                    type="button"
+                    onClick={handleRemoveLink}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20"
+                  >
+                    <Unlink className="h-3.5 w-3.5" />
+                    Remove link
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={closeLinkDialog}
+                    className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveLink}
+                    disabled={!linkUrl.trim()}
+                    className="rounded-xl bg-yellow-400 px-3 py-2 text-xs font-semibold text-black transition-colors hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Save link
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

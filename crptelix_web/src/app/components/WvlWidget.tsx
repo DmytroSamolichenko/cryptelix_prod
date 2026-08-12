@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   addDays,
   format,
@@ -21,6 +21,8 @@ import { apiFetch } from '../lib/apiClient';
 import { useTradesSynced } from '../lib/useTradesSynced';
 
 const WEEKDAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
+const ENTRANCE_STAGGER_MS = 70;
+const ENTRANCE_DURATION_MS = 420;
 
 export interface WvlSeriesPoint {
   date: string;
@@ -45,10 +47,26 @@ function emptySeriesForWeek(weekStartMonday: Date): WvlSeriesPoint[] {
   });
 }
 
+function seriesHasBars(series: WvlSeriesPoint[]): boolean {
+  return series.some((row) => row.wins > 0 || row.losses > 0);
+}
+
+function seriesSignature(series: WvlSeriesPoint[]): string {
+  return series.map((row) => `${row.date}:${row.wins}:${row.losses}`).join('|');
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - (1 - t) ** 3;
+}
+
+function zeroedSeries(series: WvlSeriesPoint[]): WvlSeriesPoint[] {
+  return series.map((row) => ({ ...row, wins: 0, losses: 0 }));
+}
+
 function WvlTooltip({ active, payload, label }: TooltipProps<number, string>) {
   if (!active || !payload?.length) return null;
-  const wins = Number(payload.find((p) => p.dataKey === 'wins')?.value ?? 0);
-  const losses = Number(payload.find((p) => p.dataKey === 'losses')?.value ?? 0);
+  const wins = Math.round(Number(payload.find((p) => p.dataKey === 'wins')?.value ?? 0));
+  const losses = Math.round(Number(payload.find((p) => p.dataKey === 'losses')?.value ?? 0));
   return (
     <div className="rounded-md border border-zinc-600 bg-zinc-900 px-3 py-2 text-xs shadow-lg">
       {label != null && label !== '' && (
@@ -67,9 +85,13 @@ export function WvlWidget() {
   const [chartData, setChartData] = useState<WvlSeriesPoint[]>(() =>
     emptySeriesForWeek(startOfWeek(new Date(), { weekStartsOn: 1 }))
   );
-  const [loading, setLoading] = useState(true);
+  const [displayData, setDisplayData] = useState<WvlSeriesPoint[]>(() =>
+    emptySeriesForWeek(startOfWeek(new Date(), { weekStartsOn: 1 }))
+  );
   const [hoverLabel, setHoverLabel] = useState<string | null>(null);
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
+  const animRafRef = useRef<number | null>(null);
+  const lastAnimatedSigRef = useRef<string>('');
 
   const weekEnd = useMemo(() => addDays(weekStart, 6), [weekStart]);
 
@@ -91,7 +113,6 @@ export function WvlWidget() {
   const fetchWvl = useCallback(async () => {
     const startStr = format(weekStart, 'yyyy-MM-dd');
     const endStr = format(weekEnd, 'yyyy-MM-dd');
-    setLoading(true);
     try {
       const res = await apiFetch(
         `/api/v1/trades/wvl?start_date=${encodeURIComponent(startStr)}&end_date=${encodeURIComponent(endStr)}`
@@ -109,8 +130,6 @@ export function WvlWidget() {
       }
     } catch {
       setChartData(emptySeriesForWeek(weekStart));
-    } finally {
-      setLoading(false);
     }
   }, [weekStart, weekEnd]);
 
@@ -120,6 +139,69 @@ export function WvlWidget() {
 
   useTradesSynced(fetchWvl);
 
+  // Staggered rise: Mon → Sun, only when the week actually has bars
+  useEffect(() => {
+    const sig = seriesSignature(chartData);
+
+    if (animRafRef.current != null) {
+      cancelAnimationFrame(animRafRef.current);
+      animRafRef.current = null;
+    }
+
+    if (!seriesHasBars(chartData)) {
+      lastAnimatedSigRef.current = sig;
+      setDisplayData(chartData);
+      return;
+    }
+
+    if (sig === lastAnimatedSigRef.current) {
+      setDisplayData(chartData);
+      return;
+    }
+
+    const target = chartData;
+    setDisplayData(zeroedSeries(target));
+    const startedAt = performance.now();
+    const totalMs = ENTRANCE_STAGGER_MS * (target.length - 1) + ENTRANCE_DURATION_MS;
+
+    const tick = (now: number) => {
+      const elapsed = now - startedAt;
+      setDisplayData(
+        target.map((row, index) => {
+          const local = (elapsed - index * ENTRANCE_STAGGER_MS) / ENTRANCE_DURATION_MS;
+          const t = easeOutCubic(Math.min(1, Math.max(0, local)));
+          return {
+            ...row,
+            wins: row.wins * t,
+            losses: row.losses * t,
+          };
+        })
+      );
+
+      if (elapsed < totalMs) {
+        animRafRef.current = requestAnimationFrame(tick);
+      } else {
+        lastAnimatedSigRef.current = sig;
+        setDisplayData(target);
+        animRafRef.current = null;
+      }
+    };
+
+    animRafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (animRafRef.current != null) {
+        cancelAnimationFrame(animRafRef.current);
+        animRafRef.current = null;
+      }
+    };
+  }, [chartData]);
+
+  const changeWeek = (delta: number) => {
+    setHoverLabel(null);
+    setSelectedLabel(null);
+    setWeekStart((d) => addWeeks(d, delta));
+  };
+
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col gap-2">
       <div className="flex shrink-0 items-center justify-center gap-3 px-1">
@@ -127,7 +209,7 @@ export function WvlWidget() {
           type="button"
           aria-label="Previous week"
           className="rounded border border-zinc-700 px-2 py-0.5 text-sm text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
-          onClick={() => setWeekStart((d) => addWeeks(d, -1))}
+          onClick={() => changeWeek(-1)}
         >
           &lt;
         </button>
@@ -138,7 +220,7 @@ export function WvlWidget() {
           type="button"
           aria-label="Next week"
           className="rounded border border-zinc-700 px-2 py-0.5 text-sm text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
-          onClick={() => setWeekStart((d) => addWeeks(d, 1))}
+          onClick={() => changeWeek(1)}
         >
           &gt;
         </button>
@@ -147,7 +229,7 @@ export function WvlWidget() {
       <div className="min-h-0 min-w-0 flex-1 opacity-100">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
-            data={chartData}
+            data={displayData}
             margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
             onMouseMove={(state) => {
               const label =
@@ -207,6 +289,7 @@ export function WvlWidget() {
               fill="#22c55e"
               radius={[4, 4, 0, 0]}
               maxBarSize={28}
+              isAnimationActive={false}
             />
             <Bar
               dataKey="losses"
@@ -214,14 +297,11 @@ export function WvlWidget() {
               fill="#ef4444"
               radius={[4, 4, 0, 0]}
               maxBarSize={28}
+              isAnimationActive={false}
             />
           </BarChart>
         </ResponsiveContainer>
       </div>
-
-      {loading && (
-        <p className="shrink-0 text-center text-[10px] text-zinc-500">Loading WvL…</p>
-      )}
     </div>
   );
 }

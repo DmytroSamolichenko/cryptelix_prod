@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, type MouseEvent } from 'react';
 import {
   Send,
   Sparkles,
@@ -8,11 +8,22 @@ import {
   Loader2,
   LayoutGrid,
   GitCompare,
+  Trash2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChatMessageMarkdown } from './ChatMessageMarkdown';
 import { apiFetch } from '../lib/apiClient';
 import { cn } from './ui/utils';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 
 interface Message {
   id: string;
@@ -35,6 +46,28 @@ const WELCOME: Message = {
     'Hello! I am the Cryptelix AI assistant. I can help with dashboards, metrics, and trading. What would you like to know?',
   timestamp: new Date(),
 };
+
+const HIDDEN_SESSIONS_KEY = 'cryptelix-hidden-chat-sessions';
+
+function loadHiddenSessionIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(HIDDEN_SESSIONS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((id): id is string => typeof id === 'string' && id.length > 0));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveHiddenSessionIds(ids: Set<string>) {
+  try {
+    localStorage.setItem(HIDDEN_SESSIONS_KEY, JSON.stringify([...ids]));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
 
 function parseApiMessage(raw: {
   id: string;
@@ -72,6 +105,11 @@ export function AiBot() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  /** Frontend-only hide until DB delete exists (persisted across refresh) */
+  const [hiddenSessionIds, setHiddenSessionIds] = useState<Set<string>>(() =>
+    loadHiddenSessionIds()
+  );
+  const [pendingDelete, setPendingDelete] = useState<ChatSessionRow | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -139,6 +177,36 @@ export function AiBot() {
     setSendError(null);
     setSending(false);
     setIsActionsOpen(false);
+  };
+
+  const visibleSessions = useMemo(
+    () => sessions.filter((s) => !hiddenSessionIds.has(s.id)),
+    [sessions, hiddenSessionIds]
+  );
+
+  const requestDeleteSession = (session: ChatSessionRow, e: MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setPendingDelete(session);
+  };
+
+  const confirmDeleteSession = () => {
+    if (!pendingDelete) return;
+    const id = pendingDelete.id;
+    setHiddenSessionIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      saveHiddenSessionIds(next);
+      return next;
+    });
+    setPendingDelete(null);
+    if (activeSessionId === id) {
+      setActiveSessionId(null);
+      setMessages([{ ...WELCOME, timestamp: new Date() }]);
+      setSendError(null);
+      setSending(false);
+      setIsActionsOpen(false);
+    }
   };
 
   const handleSend = async () => {
@@ -274,10 +342,10 @@ export function AiBot() {
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               Loading…
             </div>
-          ) : sessions.length === 0 ? (
+          ) : visibleSessions.length === 0 ? (
             <p className="px-2 text-xs text-zinc-600">No saved sessions yet</p>
           ) : (
-            sessions.map((s) => {
+            visibleSessions.map((s) => {
               const active = activeSessionId === s.id;
               return (
                 <motion.button
@@ -316,12 +384,65 @@ export function AiBot() {
                   >
                     {s.title?.trim() || 'Untitled chat'}
                   </div>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Delete chat"
+                    title="Delete chat"
+                    onClick={(e) => requestDeleteSession(s, e)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setPendingDelete(s);
+                      }
+                    }}
+                    className={cn(
+                      'flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-all',
+                      'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+                      'text-zinc-500 hover:bg-red-500/15 hover:text-red-400',
+                      active && 'text-zinc-400'
+                    )}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </span>
                 </motion.button>
               );
             })
           )}
         </div>
       </div>
+
+      <AlertDialog
+        open={pendingDelete != null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent className="border-zinc-800 bg-zinc-950 text-zinc-100 shadow-[0_0_40px_rgba(0,0,0,0.65)] sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-white">Delete this chat?</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              Are you sure you want to remove{' '}
+              <span className="font-medium text-zinc-200">
+                “{pendingDelete?.title?.trim() || 'Untitled chat'}”
+              </span>{' '}
+              from your history? You can start a new conversation anytime.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800 hover:text-white">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteSession}
+              className="bg-red-500 text-white hover:bg-red-400 focus:ring-red-500/40"
+            >
+              Delete chat
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Messages */}
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4" ref={scrollRef}>

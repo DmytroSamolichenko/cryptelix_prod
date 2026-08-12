@@ -32,13 +32,9 @@ function clearTextSelection() {
 
 const RESIZE_HANDLES: { id: ResizeHandle; className: string; cursor: string }[] = [
   { id: 'nw', className: 'top-0 left-0 -translate-x-1/2 -translate-y-1/2', cursor: 'cursor-nw-resize' },
-  { id: 'n', className: 'top-0 left-1/2 -translate-x-1/2 -translate-y-1/2', cursor: 'cursor-n-resize' },
   { id: 'ne', className: 'top-0 right-0 translate-x-1/2 -translate-y-1/2', cursor: 'cursor-ne-resize' },
-  { id: 'e', className: 'top-1/2 right-0 translate-x-1/2 -translate-y-1/2', cursor: 'cursor-e-resize' },
   { id: 'se', className: 'bottom-0 right-0 translate-x-1/2 translate-y-1/2', cursor: 'cursor-se-resize' },
-  { id: 's', className: 'bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2', cursor: 'cursor-s-resize' },
   { id: 'sw', className: 'bottom-0 left-0 -translate-x-1/2 translate-y-1/2', cursor: 'cursor-sw-resize' },
-  { id: 'w', className: 'top-1/2 left-0 -translate-x-1/2 -translate-y-1/2', cursor: 'cursor-w-resize' },
 ];
 
 interface FlexibleWidgetProps {
@@ -256,9 +252,9 @@ function FlexibleWidgetInner({
           )}
 
           <div
-            className={`relative h-full w-full rounded-sm ${
+            className={`relative h-full w-full overflow-hidden rounded-sm ${
               isSelected
-                ? 'ring-2 ring-yellow-400/90 ring-offset-2 ring-offset-zinc-950'
+                ? 'border border-zinc-600/80'
                 : 'hover:ring-1 hover:ring-zinc-600/60'
             }`}
           >
@@ -268,12 +264,6 @@ function FlexibleWidgetInner({
             >
               {children}
             </div>
-
-            {isSelected && !isEditing && (
-              <>
-                <div className="pointer-events-none absolute inset-0 rounded-sm border border-yellow-400/50" />
-              </>
-            )}
           </div>
 
           {isSelected && !isEditing && (
@@ -281,7 +271,7 @@ function FlexibleWidgetInner({
               {RESIZE_HANDLES.map(({ id, className, cursor }) => (
                 <div
                   key={id}
-                  className={`resize-handle absolute z-50 h-2.5 w-2.5 select-none rounded-full border-2 border-yellow-400 bg-zinc-950 ${className} ${cursor}`}
+                  className={`resize-handle absolute z-50 h-3 w-3 select-none rounded-full border-2 border-yellow-400 bg-zinc-950 ${className} ${cursor}`}
                   onMouseDown={handleResizeStart(id)}
                 />
               ))}
@@ -293,47 +283,44 @@ function FlexibleWidgetInner({
           <Card
             className={`group h-full overflow-hidden border bg-zinc-900 ${
               isSelected
-                ? 'border-yellow-400/70 ring-2 ring-yellow-400/90 ring-offset-2 ring-offset-zinc-950'
+                ? 'border-zinc-600/80'
                 : 'border-zinc-800 hover:border-zinc-700'
             }`}
             onMouseDown={handleSelectOnly}
           >
-            <div
-              className="absolute left-0 right-0 top-0 z-20 flex h-10 cursor-move items-center px-3 bg-gradient-to-b from-zinc-900 to-zinc-900/95 opacity-0 transition-opacity group-hover:opacity-100"
-              onMouseDown={handleMouseDown}
-            >
-              <GripVertical className="h-4 w-4 text-gray-500" />
-            </div>
-
             <button
               type="button"
               onClick={() => onRemove(widget.id)}
-              className="absolute right-2 top-2 z-20 rounded bg-zinc-900 p-1 opacity-0 transition-opacity hover:bg-zinc-800 group-hover:opacity-100"
+              className="absolute right-2 top-2 z-20 rounded p-1 opacity-0 transition-opacity hover:bg-red-500/20 group-hover:opacity-100"
+              title="Remove"
             >
-              <X className="h-4 w-4 text-gray-500" />
+              <X className="h-4 w-4 text-gray-500 hover:text-red-400" />
             </button>
 
             <div
               className={`flex h-full min-h-0 flex-col overflow-hidden bg-zinc-900 p-3 ${isInteracting ? 'pointer-events-none' : ''}`}
             >
-              <h3 className="mb-2 shrink-0 truncate text-sm font-semibold text-white">{widget.title}</h3>
+              <h3
+                className="mb-2 shrink-0 cursor-move truncate text-sm font-semibold text-white"
+                onMouseDown={handleMouseDown}
+                title="Drag to move"
+              >
+                {widget.title}
+              </h3>
               <div className={widgetBodyClass(widget.type)}>
                 {children}
               </div>
             </div>
           </Card>
 
-          {RESIZE_HANDLES.map(({ id, className, cursor }) => (
-            <div
-              key={id}
-              className={`resize-handle absolute z-50 h-3 w-3 select-none rounded-full border-2 bg-zinc-900 ${
-                isSelected
-                  ? 'border-yellow-400 opacity-100'
-                  : 'border-zinc-500 opacity-0 transition-opacity group-hover:opacity-100'
-              } ${className} ${cursor}`}
-              onMouseDown={handleResizeStart(id)}
-            />
-          ))}
+          {isSelected &&
+            RESIZE_HANDLES.map(({ id, className, cursor }) => (
+              <div
+                key={id}
+                className={`resize-handle absolute z-50 h-3 w-3 select-none rounded-full border-2 border-yellow-400 bg-zinc-950 ${className} ${cursor}`}
+                onMouseDown={handleResizeStart(id)}
+              />
+            ))}
         </>
       )}
     </div>

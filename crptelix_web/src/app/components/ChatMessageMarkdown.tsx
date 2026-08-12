@@ -1,6 +1,9 @@
 import type { Components } from 'react-markdown';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { cn } from './ui/utils';
 
 type ChatMessageVariant = 'assistant' | 'user';
@@ -8,6 +11,43 @@ type ChatMessageVariant = 'assistant' | 'user';
 interface ChatMessageMarkdownProps {
   content: string;
   variant: ChatMessageVariant;
+}
+
+/**
+ * Normalize model math into remark-math delimiters ($ / $$).
+ * Handles bare LaTeX, [ ... ], and multiline \\frac blocks without dollars.
+ */
+function normalizeChatMath(raw: string): string {
+  let s = raw;
+
+  // [ \frac ... ] or [ Win Rate = \frac ... ] → $$...$$
+  s = s.replace(
+    /\[\s*((?:\\[a-zA-Z]+|[^\]]){0,800}?\\(?:frac|text|left|times|cdot)[\s\S]*?)\]/g,
+    (_m, inner: string) => `\n$$\n${String(inner).trim()}\n$$\n`
+  );
+
+  // Standalone multiline LaTeX that starts with \text or \frac and has no $ yet
+  if (!/\$\$|\$[^$]/.test(s) && /\\(?:frac|text|left)\b/.test(s)) {
+    s = s.replace(
+      /((?:\\(?:text|frac|left|right|times|cdot|div)[^\n]*\n?)+)/g,
+      (block) => {
+        const trimmed = block.trim();
+        if (!trimmed.includes('\\')) return block;
+        return `\n$$\n${trimmed}\n$$\n`;
+      }
+    );
+  }
+
+  // Collapse accidental backslash-newlines inside $$ blocks only lightly
+  s = s.replace(/\$\$([\s\S]*?)\$\$/g, (_m, inner: string) => {
+    const compact = String(inner)
+      .replace(/\\\\\n/g, '\\\\')
+      .replace(/\n+/g, ' ')
+      .trim();
+    return `\n$$\n${compact}\n$$\n`;
+  });
+
+  return s;
 }
 
 function buildComponents(variant: ChatMessageVariant): Components {
@@ -121,14 +161,26 @@ function buildComponents(variant: ChatMessageVariant): Components {
 }
 
 export function ChatMessageMarkdown({ content, variant }: ChatMessageMarkdownProps) {
-  if (!content.trim()) {
+  const normalized = normalizeChatMath(content);
+  if (!normalized.trim()) {
     return null;
   }
 
   return (
-    <div className="chat-markdown break-words">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={buildComponents(variant)}>
-        {content}
+    <div
+      className={cn(
+        'chat-markdown break-words',
+        '[&_.katex]:text-[1.05em]',
+        '[&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto',
+        variant === 'user' ? '[&_.katex]:text-black' : '[&_.katex]:text-zinc-100'
+      )}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={buildComponents(variant)}
+      >
+        {normalized}
       </ReactMarkdown>
     </div>
   );

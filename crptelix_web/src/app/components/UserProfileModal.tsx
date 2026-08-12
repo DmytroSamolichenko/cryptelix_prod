@@ -37,13 +37,13 @@ export function UserProfileModal({
     <AnimatePresence>
       {isOpen && (
         <>
-          {/* Backdrop */}
+          {/* Backdrop — above AI chat (z-50) so chat blurs/dims too */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+            className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm"
           />
 
           {/* Modal */}
@@ -52,7 +52,7 @@ export function UserProfileModal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -20 }}
             transition={{ duration: 0.2 }}
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[480px] bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden"
+            className="fixed left-1/2 top-1/2 z-[70] w-[480px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
           >
             {/* Header */}
             <div className="relative h-24 bg-gradient-to-br from-yellow-500/20 via-zinc-900 to-zinc-900 border-b border-zinc-800">
