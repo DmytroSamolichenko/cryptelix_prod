@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import random
+import re
 from decimal import Decimal
 from pathlib import Path
 
@@ -13,51 +15,58 @@ load_dotenv(_ENV_FILE, override=True)
 SYSTEM_PROMPT = """You are Cryptelix — the trader's calm, sharp post-trade personal assistant.
 You write ONE short insight for THIS specific closed trade only (Deal Base AI Insights column).
 
+NUMBERS (hard — wrong numbers = failed answer)
+- The Official P&L, commission, funding, entry, exit, and quantity in the user message are FACTS.
+- Quote Official P&L exactly as given. Never invent a different P&L.
+- NEVER recompute P&L as (exit − entry) × quantity. That formula is wrong here
+  (fees, funding, contract size). If you mention the price move, do not equate it to P&L.
+- If a field is n/a, skip it. Do not guess.
+
 GOAL
-- Make the trader feel supported and clear-headed after reviewing this trade.
-- Be impactful and personal: every sentence must use concrete details from THIS trade
-  (pair, side, prices, size, P&L, commission, notes, spot vs futures, USDT-M vs COIN-M,
-  leverage/funding when present). If notes exist, weave them in — never ignore them.
-- Sound like a trusted coaching partner, not a generic bot or a lecture.
+- Supportive, clear-headed, personal. Use THIS trade's facts (side, prices, Official P&L,
+  commission, notes, Spot vs Futures USDT-M / COIN-M, leverage/funding when present).
+- Sound like a trusted coaching partner, not a lecture or a template.
 
 TONE
-- Warm, steady, respectful. Keep the trader in a constructive mood.
-- Never shame, scold, catastrophize, or make them feel stupid about a loss or a small win.
-- Losses: normalize as part of the craft; winners: acknowledge skill without hype.
-- Honest but kind. No toxic positivity and no gloom.
+- Warm, steady, respectful. No shame, no gloom, no hype.
+- Losses: part of the craft. Winners: acknowledge without fireworks.
 
-PERSONALIZATION (critical — avoid template feel)
-- Do NOT reuse stock openers like "It's completely normal to experience a small loss…"
-  or the same empathy → tip → closing formula every time.
-- Vary structure, rhythm, and emphasis. Lead with whatever is most distinctive about THIS trade.
-- Tie at least one observation to the actual numbers (entry vs exit, P&L vs commission,
-  size, leverage, funding, or a phrase from notes).
-- If data is thin, still stay specific to pair/side/outcome — never invent missing facts.
+VARIETY (critical)
+- NEVER start with: "This trade…", "This [pair] trade…", "In this trade…",
+  or the pair ticker as the first words.
+- Mention the pair at most once, later in the text — not the opening.
+- Banned filler: "nuanced look", "highlights the importance", "valuable insights",
+  "It's completely normal to experience a small loss".
+- Each reply must open from a different angle (P&L vs fees, price path, size, notes,
+  market type, process). Write like a smart friend journaling with the trader.
 
-IMPROVEMENT POINTS
-- Offer 1–2 concrete process reflections the trader can review next time they journal
-  (e.g. timing of exit relative to entry, size vs result, note quality, discipline signal).
-- Frame as optional learning cues for their own review — NOT as orders.
-- NEVER promise or imply that following your points will bring immediate profits,
-  "guaranteed improvement", "next trade will win", or similar outcome claims.
-- Prefer language like "worth watching", "something to notice next journal session",
-  "a pattern to check in your process" — never "do this and you'll make money".
-
-HARD GUARDRAILS
-- You are NOT a financial advisor. No buy/sell/hold/enter/exit instructions for future trades.
-- No price targets, no "you should go long/short X", no leverage/sizing orders framed as
-  a way to make money.
-- No confidential data speculation. Stay on this trade's facts only.
-- Post-trade analytics and emotional support only — never future-centered trading advice.
+IMPROVEMENT
+- 1–2 optional process cues for the next journal session — not orders.
+- No promises of profits or "next trade will win". No financial advice.
+- No buy/sell/hold/enter/exit instructions for the future.
 
 FORMAT
-- English. Freeform prose (no labeled sections like "Emotional support:" / "Recommendation:").
-- About 70–110 words. Concise, vivid, readable in a table cell.
-- Emojis: sometimes (not every analysis) add 0–1 restrained emoji from this allow-list only:
-  📌 · 📊 · 💡 · 🙂 · 🔥 · 🚀
-  Do not use any other emoji. Never spam multiple emojis.
-- Prefer no emoji when it would feel forced.
-- Do not invent prices, notes, or outcomes that are not in the trade data."""
+- English, freeform, 70–110 words, complete sentences (do not cut off mid-sentence).
+- Sometimes 0–1 emoji from this list only: 📌 📊 💡 🙂 🔥 🚀
+- No other emojis. Prefer none if forced."""
+
+_OPENING_STYLES = (
+    "First sentence must be about Official P&L vs commission. Do not name the pair in sentence 1.",
+    "First sentence must be about the entry-to-exit price path. Pair only later, once.",
+    "First sentence must be about size/leverage feel vs the Official P&L. No 'This trade'.",
+    "First sentence must mention Spot or Futures USDT-M/COIN-M, then one fill detail.",
+    "First sentence must hang on the trader's note — or the silence of having no note.",
+    "First sentence: a process/discipline observation, then ground it in Official P&L.",
+    "Start mid-thought, like a journal continuation. Pair appears once, not first.",
+    "First sentence: what quietly went right, even if Official P&L is slightly red.",
+)
+
+_FORBIDDEN_OPENER = re.compile(
+    r"^\s*(this\s+trade|in\s+this\s+trade|for\s+this\s+trade|the\s+trade\s+in|the\s+trade\s+on)\b",
+    re.IGNORECASE,
+)
+
+_MAX_ATTEMPTS = 3
 
 
 class AIAnalysisError(Exception):
@@ -84,6 +93,25 @@ def _market_label(trade: object) -> str:
     return "Spot"
 
 
+def _pair_token(pair: object) -> str:
+    return str(pair or "").strip()
+
+
+def _insight_violates_rules(text: str, pair: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return True
+    if _FORBIDDEN_OPENER.match(stripped):
+        return True
+    if pair:
+        head = stripped[: max(len(pair) + 8, 24)].lower()
+        if head.startswith(pair.lower()):
+            return True
+    if stripped.endswith((" the", " The", ",", ";", "—")):
+        return True
+    return False
+
+
 def analyze_trade_sync(trade: object) -> str:
     """
     Build a user message from trade ORM fields and return the model text (GPT-4o-mini).
@@ -97,41 +125,64 @@ def analyze_trade_sync(trade: object) -> str:
 
     date_raw = getattr(trade, "date", None) or getattr(trade, "closed_at", None)
     date_s = date_raw.isoformat()[:10] if hasattr(date_raw, "isoformat") else str(date_raw or "n/a")
+    pair = _pair_token(getattr(trade, "pair", "n/a"))
+    official_pnl = _decimal_str(getattr(trade, "pnl", None))
 
-    user_content = (
-        "Analyze this one closed trade. Ground every claim in these fields:\n"
-        f"Date: {date_s}\n"
-        f"Market: {_market_label(trade)}\n"
-        f"Pair: {getattr(trade, 'pair', 'n/a')}\n"
-        f"Side: {getattr(trade, 'side', 'n/a')}\n"
-        f"Entry price: {_decimal_str(getattr(trade, 'entry_price', None))}\n"
-        f"Exit price: {_decimal_str(getattr(trade, 'exit_price', None))}\n"
-        f"Quantity: {_decimal_str(getattr(trade, 'quantity', None))}\n"
-        f"P&L: {_decimal_str(getattr(trade, 'pnl', None))}\n"
-        f"Commission: {_decimal_str(getattr(trade, 'commission', None))}\n"
-        f"Funding: {_decimal_str(getattr(trade, 'funding', None))}\n"
-        f"Leverage: {getattr(trade, 'leverage', None) if getattr(trade, 'leverage', None) is not None else 'n/a'}\n"
-        f"Margin mode: {getattr(trade, 'margin_mode', None) or 'n/a'}\n"
-        f"Trader notes: {getattr(trade, 'notes', None) or '(none)'}\n"
-        "Write a fully personalised insight for this trade only."
-    )
+    last_error = "Empty model response"
+    for attempt in range(_MAX_ATTEMPTS):
+        style = random.choice(_OPENING_STYLES)
+        retry_note = ""
+        if attempt > 0:
+            retry_note = (
+                "\nPREVIOUS DRAFT WAS REJECTED. It started with a banned opener "
+                "and/or treated price×qty as P&L. Rewrite from a new angle. "
+                "First words must NOT be 'This trade' or the pair ticker. "
+                f"Official P&L is {official_pnl} — use that figure, do not recalculate.\n"
+            )
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-            temperature=0.75,
-            max_tokens=420,
-            presence_penalty=0.4,
-            frequency_penalty=0.35,
+        user_content = (
+            "Closed-trade facts (do not contradict):\n"
+            f"Date: {date_s}\n"
+            f"Market: {_market_label(trade)}\n"
+            f"Pair: {pair}\n"
+            f"Side: {getattr(trade, 'side', 'n/a')}\n"
+            f"Entry price: {_decimal_str(getattr(trade, 'entry_price', None))}\n"
+            f"Exit price: {_decimal_str(getattr(trade, 'exit_price', None))}\n"
+            f"Quantity: {_decimal_str(getattr(trade, 'quantity', None))}\n"
+            f"Official P&L (use exactly, never recompute): {official_pnl}\n"
+            f"Commission: {_decimal_str(getattr(trade, 'commission', None))}\n"
+            f"Funding: {_decimal_str(getattr(trade, 'funding', None))}\n"
+            f"Leverage: {getattr(trade, 'leverage', None) if getattr(trade, 'leverage', None) is not None else 'n/a'}\n"
+            f"Margin mode: {getattr(trade, 'margin_mode', None) or 'n/a'}\n"
+            f"Trader notes: {getattr(trade, 'notes', None) or '(none)'}\n"
+            f"{retry_note}\n"
+            f"Opening instruction: {style}\n"
+            "Write 70–110 words. Finish every sentence. "
+            "Do not begin with 'This trade' or the pair."
         )
-    except Exception as exc:
-        raise AIAnalysisError(str(exc)) from exc
 
-    text = (response.choices[0].message.content or "").strip()
-    if not text:
-        raise AIAnalysisError("Empty model response")
-    return text
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.85 if attempt == 0 else 0.95,
+                max_tokens=420,
+                presence_penalty=0.6,
+                frequency_penalty=0.5,
+            )
+        except Exception as exc:
+            raise AIAnalysisError(str(exc)) from exc
+
+        text = (response.choices[0].message.content or "").strip()
+        if not text:
+            last_error = "Empty model response"
+            continue
+        if _insight_violates_rules(text, pair):
+            last_error = "Insight used a banned opener or was incomplete"
+            continue
+        return text
+
+    raise AIAnalysisError(last_error)
