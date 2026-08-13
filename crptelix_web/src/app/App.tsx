@@ -219,10 +219,10 @@ function App() {
                   }}
                   onAddWidget={(type) => {
                     const widgetTitles: Record<string, string> = {
-                      'line-chart': 'Profit Trend',
+                      'line-chart': 'Price Chart',
                       'bar-chart': 'Wins vs Losses',
                       'pie-chart': 'Portfolio Mix',
-                      'area-chart': 'Cumulative P&L',
+                      'area-chart': 'Cul. PnL',
                       'stats-card': 'Key Metrics',
                       'table': 'Full Trading Report',
                       'portfolio-widget': 'Portfolio Analytics',

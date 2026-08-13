@@ -40,7 +40,7 @@ export function getDefaultCanvases(): StoredCanvas[] {
         {
           id: 'widget-3',
           type: 'line-chart',
-          title: 'Profit Trend',
+          title: 'Price Chart',
           position: { x: scalePx(50), y: scalePx(600) },
           size: scaleSize(500, 300),
         },

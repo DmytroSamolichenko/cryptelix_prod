@@ -27,7 +27,8 @@ export type WidgetType =
   | 'stats-card'
   | 'table'
   | 'text-field'
-  | 'portfolio';
+  | 'portfolio'
+  | 'portfolio-widget';
 
 export interface Widget {
   id: string;

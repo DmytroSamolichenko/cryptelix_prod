@@ -70,7 +70,7 @@ export function ConstructorBottomMenu({
   const widgets = [
     { type: 'line-chart' as WidgetType, icon: LineChart, label: 'Price Chart' },
     { type: 'bar-chart' as WidgetType, icon: BarChart3, label: 'WvL' },
-    { type: 'area-chart' as WidgetType, icon: AreaChart, label: 'TVL' },
+    { type: 'area-chart' as WidgetType, icon: AreaChart, label: 'Cul. PnL' },
     { type: 'pie-chart' as WidgetType, icon: PieChart, label: 'Portfolio' },
     { type: 'stats-card' as WidgetType, icon: Zap, label: 'Stats' },
     { type: 'table' as WidgetType, icon: Table, label: 'FTR' },

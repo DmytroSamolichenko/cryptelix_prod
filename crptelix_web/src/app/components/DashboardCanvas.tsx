@@ -723,10 +723,10 @@ export function DashboardCanvas({
 
   const handleAddWidgetFromToolbar = (type: WidgetType) => {
     const widgetTitles: Record<WidgetType, string> = {
-      'line-chart': 'Profit Trend',
+      'line-chart': 'Price Chart',
       'bar-chart': 'WvL',
       'pie-chart': 'Portfolio Mix',
-      'area-chart': 'Cumulative P&L',
+      'area-chart': 'Cul. PnL',
       'stats-card': 'Key Metrics',
       'table': 'Full Trading Report',
       'portfolio': 'Portfolio Analytics',

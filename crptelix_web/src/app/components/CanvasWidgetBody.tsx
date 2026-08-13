@@ -4,8 +4,10 @@ import { Widget } from './DashboardWidget';
 import { KeyMetricsCards } from './TradingMetrics';
 import { FtrReportTable } from './FtrReportTable';
 import { PortfolioWidget } from './PortfolioWidget';
+import { PortfolioMixWidget } from './PortfolioMixWidget';
 import { WvlWidget } from './WvlWidget';
 import { ProfitTrendWidget } from './ProfitTrendWidget';
+import { PriceChartWidget } from './PriceChartWidget';
 
 interface CanvasWidgetBodyProps {
   widget: Widget;
@@ -23,10 +25,16 @@ export const CanvasWidgetBody = memo(function CanvasWidgetBody({
 }: CanvasWidgetBodyProps) {
   switch (widget.type) {
     case 'line-chart':
-      return <ProfitTrendWidget />;
+      return <PriceChartWidget />;
 
     case 'bar-chart':
       return <WvlWidget />;
+
+    case 'area-chart':
+      return <ProfitTrendWidget />;
+
+    case 'pie-chart':
+      return <PortfolioMixWidget />;
 
     case 'stats-card':
       if (widget.data) {
@@ -54,6 +62,7 @@ export const CanvasWidgetBody = memo(function CanvasWidgetBody({
       return <FtrReportTable onExtractMetric={onExtractMetric} />;
 
     case 'portfolio-widget':
+    case 'portfolio':
       return <PortfolioWidget />;
 
     default:

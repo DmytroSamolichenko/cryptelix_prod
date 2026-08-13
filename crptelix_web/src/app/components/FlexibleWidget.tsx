@@ -20,10 +20,21 @@ const WIDGET_MIN_HEIGHT = 170;
 
 /** Chart widgets need a fixed viewport; others scroll when content exceeds the box. */
 function widgetBodyClass(type: Widget['type']): string {
-  if (type === 'line-chart' || type === 'bar-chart') {
+  if (
+    type === 'line-chart' ||
+    type === 'bar-chart' ||
+    type === 'area-chart' ||
+    type === 'pie-chart'
+  ) {
     return 'min-h-0 min-w-0 flex-1 overflow-hidden';
   }
   return 'widget-scrollbar min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto pr-0.5';
+}
+
+function displayWidgetTitle(widget: Widget): string {
+  if (widget.type === 'line-chart') return 'Price Chart';
+  if (widget.type === 'area-chart') return 'Cul. PnL';
+  return widget.title;
 }
 
 function clearTextSelection() {
@@ -305,7 +316,7 @@ function FlexibleWidgetInner({
                 onMouseDown={handleMouseDown}
                 title="Drag to move"
               >
-                {widget.title}
+                {displayWidgetTitle(widget)}
               </h3>
               <div className={widgetBodyClass(widget.type)}>
                 {children}
