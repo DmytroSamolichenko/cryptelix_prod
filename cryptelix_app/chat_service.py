@@ -15,6 +15,13 @@ from openai import OpenAI
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from binance_market_service import (
+    ALL_FIELDS as BINANCE_MARKET_FIELDS,
+    BinanceMarketError,
+    format_market_snapshot_for_model,
+    get_market_snapshot,
+    parse_fields as parse_binance_market_fields,
+)
 from models import ChatMessage as ChatMessageModel
 from models import ChatSession as ChatSessionModel
 from models import Trade as TradeModel
@@ -32,6 +39,11 @@ CHAT_SYSTEM_PROMPT = (
     "breakdown by Spot / Futures USDT-M / Futures COIN-M, newest 3).\n"
     "- For any metric (win rate, avg win/loss, profit factor, streaks, period PnL, etc.) or lists by date, "
     "you MUST call get_trade_stats and/or get_user_trades. Never say you lack winning-trade data if tools can compute it.\n"
+    "- For live market quotes (current price, bid/ask, 24h change/high/low/volume, short-window avg price), "
+    "you MUST call get_binance_market_data. Never invent live prices. "
+    "This is public Binance Spot data, not the user's private balances.\n"
+    "- You may combine Deal Base tools with get_binance_market_data in one turn "
+    "(e.g. user's BTC trades + current BTCUSDT price).\n"
     "- MARKETS (critical — never mix blindly):\n"
     "  • Spot = account_type spot.\n"
     "  • Futures = account_type future/futures; within futures:\n"
@@ -154,7 +166,44 @@ GET_TRADE_STATS_TOOL: dict[str, Any] = {
     },
 }
 
-CHAT_TOOLS = [GET_USER_TRADES_TOOL, GET_TRADE_STATS_TOOL]
+GET_BINANCE_MARKET_DATA_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "get_binance_market_data",
+        "description": (
+            "Fetch live public Binance Spot market data for a symbol (no user API keys). "
+            "Provides last price, best bid/ask, 24h statistics (change %, high/low, volume), "
+            "and short-window average price. "
+            "ALWAYS call this for current price / market quotes. "
+            "Accepts BTCUSDT, BTC/USDT, or bare BTC (defaults to USDT). "
+            "Optional fields filter; omit fields to get all four datasets."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "Spot pair or base asset, e.g. BTCUSDT, ETH/USDT, SOL.",
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": list(BINANCE_MARKET_FIELDS),
+                    },
+                    "description": (
+                        "Which datasets to fetch. "
+                        "last_price | bid_ask | ticker_24h | avg_price. "
+                        "Omit for all."
+                    ),
+                },
+            },
+            "required": ["symbol"],
+        },
+    },
+}
+
+CHAT_TOOLS = [GET_USER_TRADES_TOOL, GET_TRADE_STATS_TOOL, GET_BINANCE_MARKET_DATA_TOOL]
 
 MAX_TOOL_ROUNDS = 4
 DEFAULT_TRADE_LIMIT = 30
@@ -631,6 +680,24 @@ def _stats_block(rows: list[Mapping[str, Any]], heading: str) -> list[str]:
     ]
 
 
+def execute_get_binance_market_data(args: Mapping[str, Any]) -> str:
+    """Run get_binance_market_data tool (public Binance Spot quotes)."""
+    try:
+        fields = parse_binance_market_fields(args.get("fields"))
+        snapshot = get_market_snapshot(args.get("symbol"), fields)
+        return format_market_snapshot_for_model(snapshot)
+    except BinanceMarketError as exc:
+        return (
+            f"get_binance_market_data error: {exc}. "
+            "Tell the user the live quote could not be fetched; do not invent a price."
+        )
+    except Exception as exc:
+        return (
+            f"get_binance_market_data error: {exc}. "
+            "Tell the user the live quote could not be fetched; do not invent a price."
+        )
+
+
 def execute_get_trade_stats(db: Session, user_id: int, args: Mapping[str, Any]) -> str:
     """Aggregate Deal Base metrics (win rate, avg win/loss, net PnL, etc.)."""
     from_d = _parse_iso_date(args.get("from_date"))
@@ -786,6 +853,8 @@ def _run_chat_completion_with_tools(
                 result = execute_get_user_trades(db, user_id, args)
             elif name == "get_trade_stats":
                 result = execute_get_trade_stats(db, user_id, args)
+            elif name == "get_binance_market_data":
+                result = execute_get_binance_market_data(args)
             else:
                 result = f"Unknown tool: {name}"
 
