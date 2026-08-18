@@ -8,6 +8,7 @@ import {
   type AuthUser,
 } from '../../lib/authStorage';
 import { apiFetch } from '../../lib/apiClient';
+import { identifyAmplitudeUser, resetAmplitudeUser } from '../../lib/amplitude';
 
 interface AuthGateProps {
   children: (user: AuthUser, logout: () => void) => ReactNode;
@@ -60,10 +61,16 @@ export function AuthGate({ children }: AuthGateProps) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    identifyAmplitudeUser(session.user);
+  }, [session?.user]);
+
   const logout = () => {
     // Best-effort server-side session revocation (bumps token_version).
     // Token is read by apiFetch before we clear it locally below.
     void apiFetch('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
+    resetAmplitudeUser();
     clearAuth();
     setSession(null);
   };

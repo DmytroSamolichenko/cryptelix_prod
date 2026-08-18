@@ -54,6 +54,14 @@
 
     <body>
       <div id="root"></div>
+      <script src="https://cdn.amplitude.com/script/a1b5a13294464cd8b7f1fef4a29fa43d.js"></script>
+      <script>
+        window.amplitude.add(window.sessionReplay.plugin({ sampleRate: 1 }));
+        window.amplitude.init('a1b5a13294464cd8b7f1fef4a29fa43d', {
+          fetchRemoteConfig: true,
+          autocapture: true,
+        });
+      </script>
       <script type="module" src="/src/main.tsx"></script>
     </body>
   </html>
