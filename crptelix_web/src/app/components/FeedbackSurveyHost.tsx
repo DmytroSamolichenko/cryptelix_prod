@@ -10,13 +10,14 @@ import { fetchFeedbackStatus, type FeedbackStatus } from '../lib/feedbackApi';
 
 interface FeedbackSurveyHostProps {
   userId: number;
+  paused?: boolean;
 }
 
 /**
  * Tracks visible (active) app time and opens the survey when eligible.
  * Force mode after a 1h skip cooldown removes Skip.
  */
-export function FeedbackSurveyHost({ userId }: FeedbackSurveyHostProps) {
+export function FeedbackSurveyHost({ userId, paused = false }: FeedbackSurveyHostProps) {
   const [open, setOpen] = useState(false);
   const [force, setForce] = useState(false);
   const [dismissedUntilReload, setDismissedUntilReload] = useState(false);
@@ -46,7 +47,7 @@ export function FeedbackSurveyHost({ userId }: FeedbackSurveyHostProps) {
   }, [userId]);
 
   const tryOpen = useCallback((status: FeedbackStatus) => {
-    if (dismissedUntilReload || openRef.current) return;
+    if (paused || dismissedUntilReload || openRef.current) return;
     if (!status.has_row || !status.can_offer || status.status === 'submitted') return;
 
     if (status.force) {
@@ -61,7 +62,11 @@ export function FeedbackSurveyHost({ userId }: FeedbackSurveyHostProps) {
       setForce(false);
       setOpen(true);
     }
-  }, [dismissedUntilReload]);
+  }, [dismissedUntilReload, paused]);
+
+  useEffect(() => {
+    if (paused) setOpen(false);
+  }, [paused]);
 
   const refreshStatus = useCallback(async () => {
     try {

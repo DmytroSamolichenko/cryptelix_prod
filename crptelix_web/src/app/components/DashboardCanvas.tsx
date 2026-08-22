@@ -7,7 +7,6 @@ import { DrawingCanvas } from './DrawingCanvas';
 import { CanvasTextElement, type TextElementState, DEFAULT_FONT_SIZE, normalizeCommittedHtml } from './CanvasTextElement';
 import { CanvasWidgetBody } from './CanvasWidgetBody';
 import { DEFAULT_CANVAS_ZOOM, scaleSize } from '../lib/uiScale';
-import { CanvasHelpHint } from './CanvasHelpHint';
 
 interface DashboardCanvasProps {
   widgets: Widget[];
@@ -872,7 +871,6 @@ export function DashboardCanvas({
 
       {/* Fixed UI overlays — outside scroll/zoom layer (above floating bottom menu) */}
       <div className="pointer-events-none absolute inset-0 z-40">
-        <CanvasHelpHint />
         <div
           className="pointer-events-auto absolute bottom-28 right-3 flex flex-col gap-2 sm:bottom-20 sm:right-6"
           style={{ transform: 'none' }}
@@ -880,6 +878,7 @@ export function DashboardCanvas({
         >
           <button
             type="button"
+            data-guide="go-to-widgets"
             onClick={handleGoToWidgets}
             disabled={isScrollingToWidgets}
             className={`${canvasControlButtonClass} ${
@@ -896,6 +895,7 @@ export function DashboardCanvas({
           </button>
           <button
             type="button"
+            data-guide="zoom-in"
             onClick={handleZoomIn}
             className={`${canvasControlButtonClass} border-zinc-700 hover:border-yellow-500/50`}
             title="Zoom In"
@@ -916,6 +916,7 @@ export function DashboardCanvas({
           </button>
           <button
             type="button"
+            data-guide="zoom-out"
             onClick={handleZoomOut}
             className={`${canvasControlButtonClass} border-zinc-700 hover:border-yellow-500/50`}
             title="Zoom Out"

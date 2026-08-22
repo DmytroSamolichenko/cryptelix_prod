@@ -17,6 +17,7 @@ const TEXT_MIN_WIDTH = 80;
 const TEXT_MIN_HEIGHT = 40;
 const WIDGET_MIN_WIDTH = 238;
 const WIDGET_MIN_HEIGHT = 170;
+const BODY_DRAG_THRESHOLD = 5;
 
 /** Chart widgets need a fixed viewport; others scroll when content exceeds the box. */
 function widgetBodyClass(type: Widget['type']): string {
@@ -87,6 +88,16 @@ function FlexibleWidgetInner({
     originX: 0,
     originY: 0,
   });
+  const pendingBodyDragRef = useRef<{
+    clientX: number;
+    clientY: number;
+    posX: number;
+    posY: number;
+    sizeW: number;
+    sizeH: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
 
   const isTextField = widget.type === 'text-field';
   const position = widget.position || { x: 0, y: 0 };
@@ -107,6 +118,17 @@ function FlexibleWidgetInner({
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
+      if (interactionRef.current === 'idle' && pendingBodyDragRef.current) {
+        const pending = pendingBodyDragRef.current;
+        const dist = Math.hypot(e.clientX - pending.clientX, e.clientY - pending.clientY);
+        if (dist < BODY_DRAG_THRESHOLD) return;
+        pendingBodyDragRef.current = null;
+        interactionRef.current = 'drag';
+        dragStartRef.current = pending;
+        setIsInteracting(true);
+        clearTextSelection();
+      }
+
       const mode = interactionRef.current;
       if (mode === 'idle') return;
 
@@ -136,6 +158,7 @@ function FlexibleWidgetInner({
     };
 
     const handleMouseUp = (e: MouseEvent) => {
+      pendingBodyDragRef.current = null;
       const mode = interactionRef.current;
       if (mode === 'idle') return;
 
@@ -209,11 +232,32 @@ function FlexibleWidgetInner({
     startInteraction('drag', e);
   };
 
+  const isChromeHit = (target: EventTarget | null) => {
+    const el = target as HTMLElement | null;
+    if (!el) return true;
+    return Boolean(el.closest('.resize-handle, button, a, input, select, textarea'));
+  };
+
   const handleSelectOnly = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.resize-handle')) return;
-    if ((e.target as HTMLElement).closest('button, a, input, select, textarea')) return;
+    if (isChromeHit(e.target)) return;
     e.stopPropagation();
     onSelect?.();
+  };
+
+  const handleBodyDragCapture = (e: React.MouseEvent) => {
+    if (e.button !== 0 || e.detail < 2) return;
+    if (isChromeHit(e.target)) return;
+    onSelect?.();
+    pendingBodyDragRef.current = {
+      clientX: e.clientX,
+      clientY: e.clientY,
+      posX: position.x,
+      posY: position.y,
+      sizeW: size.width,
+      sizeH: size.height,
+      originX: canvasOrigin.x,
+      originY: canvasOrigin.y,
+    };
   };
 
   const handleResizeStart = (handle: ResizeHandle) => (e: React.MouseEvent) => {
@@ -239,6 +283,7 @@ function FlexibleWidgetInner({
         height: `${size.height}px`,
       }}
       onMouseDown={isTextField ? handleTextWrapperMouseDown : undefined}
+      onMouseDownCapture={isTextField ? undefined : handleBodyDragCapture}
     >
       {isTextField ? (
         <div className="relative h-full w-full">
@@ -312,7 +357,7 @@ function FlexibleWidgetInner({
               className={`flex h-full min-h-0 flex-col overflow-hidden bg-zinc-900 p-3 ${isInteracting ? 'pointer-events-none' : ''}`}
             >
               <h3
-                className="mb-2 shrink-0 cursor-move truncate text-sm font-semibold text-white"
+                className="mb-2 shrink-0 cursor-move select-none truncate text-sm font-semibold text-white"
                 onMouseDown={handleMouseDown}
                 title="Drag to move"
               >

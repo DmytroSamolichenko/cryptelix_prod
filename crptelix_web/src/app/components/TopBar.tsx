@@ -105,6 +105,7 @@ export function TopBar({
         <div className="scrollbar-hidden ml-auto flex min-w-0 flex-1 items-center justify-end gap-1 overflow-x-auto sm:gap-2">
             <div className="flex shrink-0 items-center gap-1 sm:gap-2">
               <motion.button
+                data-guide="broker"
                 onClick={() => openModal('broker')}
                 className={cn(
                   'group flex h-8 min-w-8 shrink-0 items-center justify-center gap-1 rounded-lg border px-1.5 sm:h-9 sm:min-w-9',
@@ -162,6 +163,7 @@ export function TopBar({
 
             <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-zinc-700/50 bg-zinc-900/50 p-0.5 sm:gap-1 sm:p-1">
               <motion.button
+                data-guide="constructor"
                 onClick={() => onViewChange('constructor')}
                 className={cn(
                   'rounded-md px-2 py-1 text-xs font-medium transition-all sm:px-3 sm:py-1.5 sm:text-sm',
@@ -176,6 +178,7 @@ export function TopBar({
                 <span className="hidden sm:inline">Constructor</span>
               </motion.button>
               <motion.button
+                data-guide="deal-base"
                 onClick={() => onViewChange('database')}
                 className={cn(
                   'rounded-md px-2 py-1 text-xs font-medium transition-all sm:px-3 sm:py-1.5 sm:text-sm',
@@ -194,6 +197,7 @@ export function TopBar({
             <div className="mx-1 hidden h-6 w-px shrink-0 bg-zinc-700/50 md:block" />
 
             <motion.button
+              data-guide="ai-assistant"
               onClick={onChatToggle}
               className={cn(
                 'flex h-8 shrink-0 items-center justify-center rounded-lg border px-2 text-xs font-medium transition-all sm:h-9 sm:px-3 sm:text-sm',
@@ -212,6 +216,7 @@ export function TopBar({
             <div className="mx-1 hidden h-6 w-px shrink-0 bg-zinc-700/50 md:block" />
 
             <motion.button
+              data-guide="profile"
               onClick={() => setIsUserProfileOpen(true)}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-700/50 bg-zinc-900/40 transition-all hover:border-yellow-500/40 hover:bg-zinc-800/40 sm:h-9 sm:w-9"
               whileHover={{ scale: 1.1 }}

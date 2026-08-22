@@ -885,6 +885,7 @@ export function DataBase() {
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
+                data-guide="table-editor"
                 className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 hover:text-white"
               >
                 Table Editor
@@ -916,6 +917,7 @@ export function DataBase() {
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
+                data-guide="import-export"
                 className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 hover:text-white"
               >
                 Import/Export
@@ -945,7 +947,10 @@ export function DataBase() {
 
       {/* Table card */}
       <div className="min-h-0 flex-1 px-4 pb-4">
-        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+        <div
+          data-guide="deal-base-table"
+          className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]"
+        >
           <div className="min-h-0 flex-1 overflow-auto">
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 border-b border-zinc-800/80 bg-zinc-900/95 backdrop-blur-sm">

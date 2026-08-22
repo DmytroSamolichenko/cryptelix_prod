@@ -9,9 +9,14 @@ import { TopBar } from './components/TopBar';
 import { DataBase } from './components/DataBase';
 import { ConstructorBottomMenu } from './components/ConstructorBottomMenu';
 import { FeedbackSurveyHost } from './components/FeedbackSurveyHost';
+import { CanvasHelpHint } from './components/CanvasHelpHint';
+import { AppGuide, type GuidePhase } from './components/AppGuide';
 import { loadConstructorState, saveConstructorState } from './lib/dashboardStorage';
 import { DEFAULT_FONT_SIZE } from './components/CanvasTextElement';
 import { scalePx, scaleSize } from './lib/uiScale';
+import { APP_GUIDE_STEPS } from './lib/appGuideSteps';
+import { hasSeenAppGuide, markAppGuideSeen } from './lib/appGuideStorage';
+import type { AuthUser } from './lib/authStorage';
 
 interface Canvas {
   id: string;
@@ -19,7 +24,7 @@ interface Canvas {
   widgets: Widget[];
 }
 
-function App() {
+function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void }) {
   const [initialState] = useState(() => loadConstructorState());
   const [canvases, setCanvases] = useState<Canvas[]>(initialState.canvases);
   const [activeCanvasId, setActiveCanvasId] = useState(initialState.activeCanvasId);
@@ -32,9 +37,12 @@ function App() {
   const [drawingsByCanvasId, setDrawingsByCanvasId] = useState<Record<string, string>>(
     initialState.drawingsByCanvasId
   );
+  const [guidePhase, setGuidePhase] = useState<GuidePhase>('idle');
+  const [tourIndex, setTourIndex] = useState(0);
 
   const activeCanvas = canvases.find((c) => c.id === activeCanvasId);
   const widgets = activeCanvas?.widgets || [];
+  const guideActive = guidePhase !== 'idle';
 
   const addCanvas = () => {
     const newCanvas: Canvas = {
@@ -54,14 +62,14 @@ function App() {
 
   const deleteCanvas = (id: string) => {
     if (canvases.length <= 1) return; // Don't delete if it's the last canvas
-    
+
     setCanvases((prev) => prev.filter((c) => c.id !== id));
     setDrawingsByCanvasId((prev) => {
       const next = { ...prev };
       delete next[id];
       return next;
     });
-    
+
     // If deleting the active canvas, switch to the first remaining canvas
     if (id === activeCanvasId) {
       const remainingCanvases = canvases.filter((c) => c.id !== id);
@@ -141,12 +149,64 @@ function App() {
     return () => window.clearTimeout(timeout);
   }, [canvases, activeCanvasId, drawingsByCanvasId, brushColor]);
 
+  useEffect(() => {
+    if (!hasSeenAppGuide(user.id)) {
+      setGuidePhase('welcome');
+    }
+  }, [user.id]);
+
+  useEffect(() => {
+    if (guidePhase !== 'tour') return;
+    const step = APP_GUIDE_STEPS[tourIndex];
+    if (!step) return;
+    setCurrentView(step.view);
+    setIsWidgetsOpen(Boolean(step.openWidgets));
+    setIsChatOpen(false);
+    setIsBrushActive(false);
+  }, [guidePhase, tourIndex]);
+
+  const resetWorkspaceAfterGuide = useCallback(() => {
+    setIsWidgetsOpen(false);
+    setIsBrushActive(false);
+    setIsChatOpen(false);
+    setCurrentView('constructor');
+  }, []);
+
+  const handleGuideBegin = () => {
+    setTourIndex(0);
+    setCurrentView('constructor');
+    setGuidePhase('tour');
+  };
+
+  const handleGuideSkip = () => {
+    markAppGuideSeen(user.id);
+    resetWorkspaceAfterGuide();
+    setGuidePhase('skipNote');
+  };
+
+  const handleGuideNext = () => {
+    if (tourIndex >= APP_GUIDE_STEPS.length - 1) {
+      markAppGuideSeen(user.id);
+      resetWorkspaceAfterGuide();
+      setGuidePhase('done');
+      return;
+    }
+    setTourIndex((i) => i + 1);
+  };
+
+  const handleGuideBack = () => {
+    setTourIndex((i) => Math.max(0, i - 1));
+  };
+
+  const handleGuideIdle = () => {
+    resetWorkspaceAfterGuide();
+    setGuidePhase('idle');
+  };
+
   return (
-    <AuthGate>
-      {(user, logout) => (
     <DndProvider backend={HTML5Backend}>
       <div className="flex h-screen min-h-0 flex-col bg-black">
-        <FeedbackSurveyHost userId={user.id} />
+        <FeedbackSurveyHost userId={user.id} paused={guideActive} />
         {/* Top Bar */}
         <TopBar
           userEmail={user.email}
@@ -255,10 +315,39 @@ function App() {
               </div>
             </div>
           )}
+
+          {!guideActive && (
+            <CanvasHelpHint
+              currentView={currentView}
+              onStartGuide={() => {
+                setTourIndex(0);
+                setCurrentView('constructor');
+                setGuidePhase('welcome');
+              }}
+            />
+          )}
         </div>
+
+        <AppGuide
+          phase={guidePhase}
+          tourIndex={tourIndex}
+          remeasureKey={`${currentView}:${isWidgetsOpen}`}
+          onBegin={handleGuideBegin}
+          onSkip={handleGuideSkip}
+          onSkipNoteDismiss={handleGuideIdle}
+          onNext={handleGuideNext}
+          onBack={handleGuideBack}
+          onDoneDismiss={handleGuideIdle}
+        />
       </div>
     </DndProvider>
-      )}
+  );
+}
+
+function App() {
+  return (
+    <AuthGate>
+      {(user, logout) => <AuthenticatedApp user={user} logout={logout} />}
     </AuthGate>
   );
 }

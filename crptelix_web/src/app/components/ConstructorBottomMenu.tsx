@@ -68,13 +68,48 @@ export function ConstructorBottomMenu({
   }, [activeCanvasId, canvases.length]);
 
   const widgets = [
-    { type: 'line-chart' as WidgetType, icon: LineChart, label: 'Price Chart' },
-    { type: 'bar-chart' as WidgetType, icon: BarChart3, label: 'WvL' },
-    { type: 'area-chart' as WidgetType, icon: AreaChart, label: 'Cul. PnL' },
-    { type: 'pie-chart' as WidgetType, icon: PieChart, label: 'Portfolio' },
-    { type: 'stats-card' as WidgetType, icon: Zap, label: 'Stats' },
-    { type: 'table' as WidgetType, icon: Table, label: 'FTR' },
-    { type: 'portfolio-widget' as WidgetType, icon: Wallet, label: 'Portfolio' },
+    {
+      type: 'line-chart' as WidgetType,
+      icon: LineChart,
+      label: 'Price Chart',
+      description: 'Line of entry prices for a chosen pair from your Deal Base trades.',
+    },
+    {
+      type: 'bar-chart' as WidgetType,
+      icon: BarChart3,
+      label: 'WvL',
+      description: 'Bar chart of winning vs losing trades for each day of the selected week.',
+    },
+    {
+      type: 'area-chart' as WidgetType,
+      icon: AreaChart,
+      label: 'Cul. PnL',
+      description: 'Running net P&L over time (profit minus commissions), by trades or periods.',
+    },
+    {
+      type: 'pie-chart' as WidgetType,
+      icon: PieChart,
+      label: 'Portfolio Mix',
+      description: 'Share of traded volume by asset, or by Spot / USDT-M / COIN-M.',
+    },
+    {
+      type: 'stats-card' as WidgetType,
+      icon: Zap,
+      label: 'Stats',
+      description: 'Snapshot of net P&L, win rate, profit factor, drawdown, and trade counts.',
+    },
+    {
+      type: 'table' as WidgetType,
+      icon: Table,
+      label: 'FTR',
+      description: 'Full Trading Report: detailed metrics for the whole Deal Base history.',
+    },
+    {
+      type: 'portfolio-widget' as WidgetType,
+      icon: Wallet,
+      label: 'Portfolio',
+      description: 'Allocation and history across exchanges and wallets in one view.',
+    },
   ];
 
   const handleStartEditing = (canvasId: string, currentName: string) => {
@@ -104,7 +139,7 @@ export function ConstructorBottomMenu({
       <div className="pointer-events-none flex flex-col gap-2 overflow-visible px-2 py-3 sm:min-h-[54px] sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:overflow-visible sm:px-3 sm:py-3">
         {/* Tools — centered; above dashboard tabs so they never get covered */}
         <div className="pointer-events-auto order-1 flex shrink-0 items-center justify-center gap-2 sm:absolute sm:left-1/2 sm:top-1/2 sm:z-20 sm:-translate-x-1/2 sm:-translate-y-1/2">
-          <div className="relative">
+          <div className="relative" data-guide="widgets">
             <motion.button
               onClick={onWidgetsToggle}
               className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all sm:gap-2 sm:px-4 sm:text-sm ${
@@ -121,7 +156,10 @@ export function ConstructorBottomMenu({
             </motion.button>
 
             {isWidgetsOpen && (
-              <div className="absolute bottom-full left-1/2 z-40 mb-2 -translate-x-1/2 overflow-visible pt-6">
+              <div
+                data-guide="widgets"
+                className="absolute bottom-full left-1/2 z-40 mb-2 -translate-x-1/2 overflow-visible pt-6"
+              >
                 <div className="flex items-center gap-2 overflow-visible">
                   {widgets.map((widget, index) => (
                     <motion.button
@@ -145,9 +183,14 @@ export function ConstructorBottomMenu({
                       whileTap={{ scale: 0.95 }}
                     >
                       <widget.icon className="h-5 w-5 text-gray-400 transition-colors group-hover:text-white" />
-                      <div className="pointer-events-none absolute bottom-full mb-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                        <div className="whitespace-nowrap rounded border border-zinc-700 bg-zinc-900 px-2 py-1">
-                          <span className="text-xs text-gray-300">{widget.label}</span>
+                      <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                        <div className="w-48 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-center shadow-lg">
+                          <div className="text-xs font-medium whitespace-nowrap text-gray-200">
+                            {widget.label}
+                          </div>
+                          <div className="mt-1 text-[11px] leading-snug text-zinc-400">
+                            {widget.description}
+                          </div>
                         </div>
                         <div className="absolute left-1/2 top-full -mt-px -translate-x-1/2">
                           <div className="border-4 border-transparent border-t-zinc-900" />
@@ -162,6 +205,7 @@ export function ConstructorBottomMenu({
 
           <div className="relative">
             <motion.button
+              data-guide="draw"
               onClick={() => onBrushToggle()}
               className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all sm:gap-2 sm:px-4 sm:text-sm ${
                 isBrushActive
@@ -190,6 +234,7 @@ export function ConstructorBottomMenu({
 
           <motion.button
             type="button"
+            data-guide="text"
             onClick={onTextFieldAdd}
             className="flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-gray-300 transition-all hover:border-yellow-500/40 hover:bg-zinc-800 hover:text-white sm:gap-2 sm:px-4 sm:text-sm"
             title="Add text field"
@@ -202,7 +247,10 @@ export function ConstructorBottomMenu({
         </div>
 
         {/* Canvas tabs — scroll strip; glow is an inner blur (not box-shadow) so overflow won't clip it */}
-        <div className="pointer-events-auto order-2 z-0 min-w-0 max-w-full sm:max-w-[min(42%,calc(50%-11rem))] lg:max-w-[min(44%,calc(50%-12rem))]">
+        <div
+          data-guide="dashboard"
+          className="pointer-events-auto order-2 z-0 min-w-0 max-w-full sm:max-w-[min(42%,calc(50%-11rem))] lg:max-w-[min(44%,calc(50%-12rem))]"
+        >
           <div
             ref={tabsScrollRef}
             className="scrollbar-hidden flex items-center gap-0.5 overflow-x-auto overscroll-x-contain px-1 py-1"
