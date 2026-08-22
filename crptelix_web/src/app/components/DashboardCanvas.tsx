@@ -7,6 +7,20 @@ import { DrawingCanvas } from './DrawingCanvas';
 import { CanvasTextElement, type TextElementState, DEFAULT_FONT_SIZE, normalizeCommittedHtml } from './CanvasTextElement';
 import { CanvasWidgetBody } from './CanvasWidgetBody';
 import { DEFAULT_CANVAS_ZOOM, scaleSize } from '../lib/uiScale';
+import {
+  clientToWorldPoint,
+  findStrokeAtPoint,
+  normalizeRect,
+  parseDrawingData,
+  rectsIntersect,
+  removeStrokesById,
+  serializeDrawingData,
+  strokeBounds,
+  strokeIntersectsRect,
+  translateStrokes,
+  unionRects,
+  type WorldRect,
+} from '../lib/drawingStorage';
 
 interface DashboardCanvasProps {
   widgets: Widget[];
@@ -159,6 +173,19 @@ function computeScrollTargetForBounds(
   };
 }
 
+function toggleId(ids: string[], id: string): string[] {
+  return ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id];
+}
+
+function widgetWorldRect(widget: Widget): WorldRect {
+  return {
+    x: WORLD_ORIGIN + (widget.position?.x ?? 0),
+    y: WORLD_ORIGIN + (widget.position?.y ?? 0),
+    width: widget.size?.width ?? 400,
+    height: widget.size?.height ?? 320,
+  };
+}
+
 function widgetToTextElement(widget: Widget): TextElementState {
   const data = (widget.data ?? {}) as { text?: string; html?: string; fontSize?: number };
   const rawHtml = data.html ?? '';
@@ -203,11 +230,25 @@ export function DashboardCanvas({
   const isZoomAnimatingRef = useRef(false);
   const [isPanning, setIsPanning] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
-  const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
+  const [selectedWidgetIds, setSelectedWidgetIds] = useState<string[]>([]);
+  const [selectedStrokeIds, setSelectedStrokeIds] = useState<string[]>([]);
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
+  const [marquee, setMarquee] = useState<WorldRect | null>(null);
+  const [isMarqueeing, setIsMarqueeing] = useState(false);
+  const [groupDrag, setGroupDrag] = useState<{ sourceId: string; dx: number; dy: number } | null>(
+    null
+  );
+  const [boundsDragging, setBoundsDragging] = useState(false);
   const [widgetsOffScreen, setWidgetsOffScreen] = useState(false);
   const [isScrollingToWidgets, setIsScrollingToWidgets] = useState(false);
   const knownTextWidgetIdsRef = useRef(new Set<string>());
+  const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const marqueeRef = useRef<WorldRect | null>(null);
+  const groupBoundsDragRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const selectedWidgetIdsRef = useRef<string[]>([]);
+  const selectedStrokeIdsRef = useRef<string[]>([]);
+  selectedWidgetIdsRef.current = selectedWidgetIds;
+  selectedStrokeIdsRef.current = selectedStrokeIds;
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const worldSurfaceRef = useRef<HTMLDivElement | null>(null);
   const hasCenteredScrollRef = useRef(false);
@@ -592,16 +633,73 @@ export function DashboardCanvas({
     setIsPanning(true);
   };
 
-  const clearWidgetSelection = () => {
-    setSelectedWidgetId(null);
+  const clearSelection = useCallback(() => {
+    setSelectedWidgetIds([]);
+    setSelectedStrokeIds([]);
     setEditingWidgetId(null);
-  };
+  }, []);
+
+  const selectWidget = useCallback((id: string, event?: { shiftKey: boolean; keepGroup?: boolean }) => {
+    if (event?.shiftKey) {
+      setSelectedWidgetIds((prev) => {
+        const next =
+          event.keepGroup && prev.includes(id)
+            ? prev
+            : event.keepGroup
+              ? [...prev, id]
+              : toggleId(prev, id);
+        selectedWidgetIdsRef.current = next;
+        return next;
+      });
+      setEditingWidgetId(null);
+      return;
+    }
+    if (event?.keepGroup) return;
+    selectedWidgetIdsRef.current = [id];
+    selectedStrokeIdsRef.current = [];
+    setSelectedWidgetIds([id]);
+    setSelectedStrokeIds([]);
+  }, []);
+
+  const handleGroupDragLive = useCallback((sourceId: string, dx: number, dy: number) => {
+    setGroupDrag({ sourceId, dx, dy });
+  }, []);
+
+  const handleGroupDragEnd = useCallback(
+    (sourceId: string, dx: number, dy: number) => {
+      setGroupDrag(null);
+      for (const id of selectedWidgetIdsRef.current) {
+        if (id === sourceId) continue;
+        const widget = widgets.find((item) => item.id === id);
+        if (!widget) continue;
+        onUpdateWidgetPosition(id, {
+          x: (widget.position?.x ?? 0) + dx,
+          y: (widget.position?.y ?? 0) + dy,
+        });
+      }
+      const strokeIds = selectedStrokeIdsRef.current;
+      if (strokeIds.length && onDrawingChange) {
+        const next = {
+          version: 1 as const,
+          strokes: translateStrokes(
+            parseDrawingData(drawingDataUrl).strokes,
+            strokeIds,
+            dx,
+            dy
+          ),
+        };
+        onDrawingChange(serializeDrawingData(next));
+      }
+    },
+    [widgets, onUpdateWidgetPosition, onDrawingChange, drawingDataUrl]
+  );
 
   useEffect(() => {
     for (const w of widgets) {
       if (w.type !== 'text-field' || knownTextWidgetIdsRef.current.has(w.id)) continue;
       knownTextWidgetIdsRef.current.add(w.id);
-      setSelectedWidgetId(w.id);
+      setSelectedWidgetIds([w.id]);
+      setSelectedStrokeIds([]);
       setEditingWidgetId(w.id);
     }
   }, [widgets]);
@@ -642,7 +740,7 @@ export function DashboardCanvas({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Delete') return;
-      if (!selectedWidgetId) return;
+      if (selectedWidgetIds.length === 0 && selectedStrokeIds.length === 0) return;
 
       const target = e.target as HTMLElement;
       if (
@@ -654,24 +752,152 @@ export function DashboardCanvas({
         return;
       }
 
-      const widget = widgets.find((w) => w.id === selectedWidgetId);
-      if (!widget) return;
-
-      if (widget.type === 'text-field' && editingWidgetId === selectedWidgetId) return;
+      if (
+        editingWidgetId &&
+        selectedWidgetIds.length === 1 &&
+        selectedWidgetIds[0] === editingWidgetId &&
+        selectedStrokeIds.length === 0
+      ) {
+        const widget = widgets.find((item) => item.id === editingWidgetId);
+        if (widget?.type === 'text-field') return;
+      }
 
       e.preventDefault();
-      onRemoveWidget(selectedWidgetId);
-      clearWidgetSelection();
+      for (const id of selectedWidgetIds) {
+        onRemoveWidget(id);
+      }
+      if (selectedStrokeIds.length && onDrawingChange) {
+        onDrawingChange(
+          serializeDrawingData({
+            version: 1,
+            strokes: removeStrokesById(parseDrawingData(drawingDataUrl).strokes, selectedStrokeIds),
+          })
+        );
+      }
+      clearSelection();
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selectedWidgetId, editingWidgetId, widgets, onRemoveWidget]);
+  }, [
+    selectedWidgetIds,
+    selectedStrokeIds,
+    editingWidgetId,
+    widgets,
+    onRemoveWidget,
+    onDrawingChange,
+    drawingDataUrl,
+    clearSelection,
+  ]);
+
+  useEffect(() => {
+    marqueeRef.current = marquee;
+  }, [marquee]);
+
+  useEffect(() => {
+    if (!isMarqueeing) return;
+
+    const onMove = (event: MouseEvent) => {
+      const start = marqueeStartRef.current;
+      const worldEl = worldSurfaceRef.current;
+      if (!start || !worldEl) return;
+      const point = clientToWorldPoint(event.clientX, event.clientY, worldEl, zoomRef.current);
+      setMarquee(normalizeRect(start.x, start.y, point.x, point.y));
+    };
+
+    const onUp = () => {
+      const current = marqueeRef.current;
+      marqueeStartRef.current = null;
+      setIsMarqueeing(false);
+      setMarquee(null);
+      if (!current || (current.width < 4 && current.height < 4)) {
+        clearSelection();
+        return;
+      }
+
+      const nextWidgets = widgets
+        .filter((widget) => rectsIntersect(widgetWorldRect(widget), current))
+        .map((widget) => widget.id);
+      const nextStrokes = parseDrawingData(drawingDataUrl)
+        .strokes.filter((stroke) => strokeIntersectsRect(stroke, current))
+        .map((stroke) => stroke.id);
+
+      setSelectedWidgetIds(nextWidgets);
+      setSelectedStrokeIds(nextStrokes);
+      setEditingWidgetId(null);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isMarqueeing, widgets, drawingDataUrl, clearSelection]);
+
+  useEffect(() => {
+    if (!boundsDragging) return;
+
+    const onMove = (event: MouseEvent) => {
+      const start = groupBoundsDragRef.current;
+      if (!start) return;
+      const z = zoomRef.current;
+      setGroupDrag({
+        sourceId: '__bounds__',
+        dx: (event.clientX - start.clientX) / z,
+        dy: (event.clientY - start.clientY) / z,
+      });
+    };
+
+    const onUp = (event: MouseEvent) => {
+      const start = groupBoundsDragRef.current;
+      groupBoundsDragRef.current = null;
+      setBoundsDragging(false);
+      if (!start) {
+        setGroupDrag(null);
+        return;
+      }
+      const z = zoomRef.current;
+      handleGroupDragEnd(
+        '__bounds__',
+        (event.clientX - start.clientX) / z,
+        (event.clientY - start.clientY) / z
+      );
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [boundsDragging, handleGroupDragEnd]);
 
   const handleWorldMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button === 0 && !spaceHeld && event.target === event.currentTarget) {
-      clearWidgetSelection();
+    if (event.button !== 0 || spaceHeld || isBrushActive) return;
+    if (event.target !== event.currentTarget) return;
+
+    const worldEl = worldSurfaceRef.current;
+    if (!worldEl) return;
+    const point = clientToWorldPoint(event.clientX, event.clientY, worldEl, zoomRef.current);
+    const hit = findStrokeAtPoint(parseDrawingData(drawingDataUrl).strokes, point);
+
+    if (event.shiftKey) {
+      if (hit) setSelectedStrokeIds((prev) => toggleId(prev, hit.id));
+      return;
     }
+
+    if (hit) {
+      setSelectedStrokeIds([hit.id]);
+      setSelectedWidgetIds([]);
+      setEditingWidgetId(null);
+      return;
+    }
+
+    event.preventDefault();
+    marqueeStartRef.current = { x: point.x, y: point.y };
+    setMarquee(normalizeRect(point.x, point.y, point.x, point.y));
+    setIsMarqueeing(true);
   };
 
   const handleCanvasMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -679,7 +905,7 @@ export function DashboardCanvas({
     const isRight = event.button === 2;
     const isSpaceLeft = event.button === 0 && spaceHeld;
     if (!isMiddle && !isRight && !isSpaceLeft) return;
-    clearWidgetSelection();
+    clearSelection();
     startPan(event);
   };
 
@@ -777,6 +1003,33 @@ export function DashboardCanvas({
   const canvasControlZoomLabelClass =
     'max-w-full truncate text-[10px] font-medium leading-none tabular-nums text-gray-400';
 
+  const strokeGroupUnion =
+    selectedWidgetIds.length === 0 && selectedStrokeIds.length > 0
+      ? unionRects(
+          parseDrawingData(drawingDataUrl)
+            .strokes.filter((stroke) => selectedStrokeIds.includes(stroke.id))
+            .map((stroke) => strokeBounds(stroke))
+            .filter((rect): rect is WorldRect => rect !== null)
+        )
+      : null;
+  const marqueePreviewWidgetIds =
+    marquee && (marquee.width > 2 || marquee.height > 2)
+      ? new Set(
+          widgets
+            .filter((widget) => rectsIntersect(widgetWorldRect(widget), marquee))
+            .map((widget) => widget.id)
+        )
+      : null;
+
+  const strokeGroupBounds = strokeGroupUnion
+    ? {
+        x: strokeGroupUnion.x - 8,
+        y: strokeGroupUnion.y - 8,
+        width: strokeGroupUnion.width + 16,
+        height: strokeGroupUnion.height + 16,
+      }
+    : null;
+
   return (
     <div className="relative flex h-full flex-col bg-zinc-950">
       <div className="relative min-h-0 flex-1 overflow-hidden bg-zinc-950">
@@ -788,7 +1041,7 @@ export function DashboardCanvas({
         >
           <div
             ref={worldSurfaceRef}
-            className="relative origin-top-left"
+            className={`relative origin-top-left ${isMarqueeing ? 'select-none' : ''}`}
             onMouseDown={handleWorldMouseDown}
             style={{
               width: WORLD_SIZE,
@@ -805,48 +1058,76 @@ export function DashboardCanvas({
           >
             {widgets.map((widget) => {
               if (widget.type === 'text-field') {
-                const isSelected = selectedWidgetId === widget.id;
+                const isSelected = selectedWidgetIds.includes(widget.id);
                 const isEditing = editingWidgetId === widget.id;
                 return (
                   <CanvasTextElement
                     key={widget.id}
                     element={widgetToTextElement(widget)}
                     isSelected={isSelected}
+                    isInGroup={isSelected && selectedWidgetIds.length > 1}
+                    isPreviewSelected={Boolean(marqueePreviewWidgetIds?.has(widget.id))}
                     isEditing={isEditing}
                     canvasOrigin={{ x: WORLD_ORIGIN, y: WORLD_ORIGIN }}
                     zoomRef={zoomRef}
-                    onSelect={() => {
-                      setSelectedWidgetId(widget.id);
-                      setEditingWidgetId(widget.id);
+                    peerOffset={
+                      groupDrag &&
+                      isSelected &&
+                      groupDrag.sourceId !== widget.id
+                        ? { x: groupDrag.dx, y: groupDrag.dy }
+                        : null
+                    }
+                    onSelect={(event) => {
+                      selectWidget(widget.id, event);
+                      if (!event?.shiftKey && !event?.keepGroup) {
+                        setEditingWidgetId(widget.id);
+                      }
                     }}
                     onStartEdit={() => {
-                      setSelectedWidgetId(widget.id);
+                      selectWidget(widget.id);
                       setEditingWidgetId(widget.id);
                     }}
                     onEndEdit={() => setEditingWidgetId(null)}
                     onUpdate={handleTextElementUpdate}
                     onRemove={(id) => {
-                      if (selectedWidgetId === id) clearWidgetSelection();
+                      setSelectedWidgetIds((prev) => prev.filter((item) => item !== id));
                       onRemoveWidget(id);
                     }}
+                    onGroupDragLive={(dx, dy) => handleGroupDragLive(widget.id, dx, dy)}
+                    onGroupDragEnd={handleGroupDragEnd}
                   />
                 );
               }
 
+              const isSelected = selectedWidgetIds.includes(widget.id);
               return (
                 <FlexibleWidget
                   key={widget.id}
                   widget={widget}
-                  onRemove={onRemoveWidget}
+                  onRemove={(id) => {
+                    setSelectedWidgetIds((prev) => prev.filter((item) => item !== id));
+                    onRemoveWidget(id);
+                  }}
                   onUpdatePosition={onUpdateWidgetPosition}
                   onUpdateSize={onUpdateWidgetSize}
                   canvasOrigin={{ x: WORLD_ORIGIN, y: WORLD_ORIGIN }}
                   zoomRef={zoomRef}
-                  isSelected={selectedWidgetId === widget.id}
-                  onSelect={() => {
-                    setSelectedWidgetId(widget.id);
-                    setEditingWidgetId(null);
+                  isSelected={isSelected}
+                  isInGroup={isSelected && selectedWidgetIds.length > 1}
+                  isPreviewSelected={Boolean(marqueePreviewWidgetIds?.has(widget.id))}
+                  peerOffset={
+                    groupDrag &&
+                    isSelected &&
+                    groupDrag.sourceId !== widget.id
+                      ? { x: groupDrag.dx, y: groupDrag.dy }
+                      : null
+                  }
+                  onSelect={(event) => {
+                    selectWidget(widget.id, event);
+                    if (!event?.shiftKey) setEditingWidgetId(null);
                   }}
+                  onGroupDragLive={(dx, dy) => handleGroupDragLive(widget.id, dx, dy)}
+                  onGroupDragEnd={handleGroupDragEnd}
                 >
                   <CanvasWidgetBody widget={widget} onExtractMetric={handleExtractMetric} />
                 </FlexibleWidget>
@@ -863,7 +1144,48 @@ export function DashboardCanvas({
               onDrawingChange={onDrawingChange}
               worldRef={worldSurfaceRef}
               zoomRef={zoomRef}
+              selectedStrokeIds={selectedStrokeIds}
+              previewOffset={
+                groupDrag && selectedStrokeIds.length > 0
+                  ? { x: groupDrag.dx, y: groupDrag.dy }
+                  : null
+              }
             />
+
+            {strokeGroupBounds && (
+              <div
+                className="absolute z-[46] cursor-move rounded-sm border border-zinc-400/90 bg-zinc-400/15"
+                style={{
+                  left: strokeGroupBounds.x,
+                  top: strokeGroupBounds.y,
+                  width: Math.max(8, strokeGroupBounds.width),
+                  height: Math.max(8, strokeGroupBounds.height),
+                  transform: groupDrag
+                    ? `translate3d(${groupDrag.dx}px, ${groupDrag.dy}px, 0)`
+                    : undefined,
+                }}
+                onMouseDown={(event) => {
+                  if (event.button !== 0 || isBrushActive) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  groupBoundsDragRef.current = { clientX: event.clientX, clientY: event.clientY };
+                  setGroupDrag({ sourceId: '__bounds__', dx: 0, dy: 0 });
+                  setBoundsDragging(true);
+                }}
+              />
+            )}
+
+            {marquee && (marquee.width > 0 || marquee.height > 0) && (
+              <div
+                className="pointer-events-none absolute z-[48] border border-zinc-400 bg-zinc-400/25"
+                style={{
+                  left: marquee.x,
+                  top: marquee.y,
+                  width: marquee.width,
+                  height: marquee.height,
+                }}
+              />
+            )}
           </div>
         </div>
 

@@ -32,24 +32,45 @@ interface DrawingCanvasProps {
   onDrawingChange?: (data: string) => void;
   worldRef: React.RefObject<HTMLDivElement | null>;
   zoomRef: MutableRefObject<number>;
+  selectedStrokeIds?: string[];
+  previewOffset?: { x: number; y: number } | null;
 }
 
 function pointsToPolyline(points: DrawingStroke['points']): string {
   return points.map((point) => `${point.x},${point.y}`).join(' ');
 }
 
-function StrokePath({ stroke }: { stroke: DrawingStroke }) {
+function StrokePath({
+  stroke,
+  selected = false,
+}: {
+  stroke: DrawingStroke;
+  selected?: boolean;
+}) {
   if (stroke.points.length < 2) return null;
+  const points = pointsToPolyline(stroke.points);
 
   return (
-    <polyline
-      points={pointsToPolyline(stroke.points)}
-      fill="none"
-      stroke={stroke.color}
-      strokeWidth={stroke.width}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
+    <g>
+      {selected && (
+        <polyline
+          points={points}
+          fill="none"
+          stroke="rgba(161, 161, 170, 0.9)"
+          strokeWidth={stroke.width + 8}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+      <polyline
+        points={points}
+        fill="none"
+        stroke={stroke.color}
+        strokeWidth={stroke.width}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </g>
   );
 }
 
@@ -78,6 +99,8 @@ export function DrawingCanvas({
   onDrawingChange,
   worldRef,
   zoomRef,
+  selectedStrokeIds = [],
+  previewOffset = null,
 }: DrawingCanvasProps) {
   const [document, setDocument] = useState<DrawingDocument>(() => parseDrawingData(drawingData));
   const [liveStroke, setLiveStroke] = useState<DrawingStroke | null>(null);
@@ -94,15 +117,14 @@ export function DrawingCanvas({
   );
 
   useEffect(() => {
-    if (!canvasId) return;
-    if (restoredForCanvasRef.current === canvasId) return;
-
-    restoredForCanvasRef.current = canvasId;
-    const parsed = parseDrawingData(drawingData);
-    setDocument(parsed);
-    liveStrokeRef.current = null;
-    setLiveStroke(null);
-    isDrawingRef.current = false;
+    if (isDrawingRef.current) return;
+    if (canvasId && restoredForCanvasRef.current !== canvasId) {
+      restoredForCanvasRef.current = canvasId;
+      liveStrokeRef.current = null;
+      setLiveStroke(null);
+      isDrawingRef.current = false;
+    }
+    setDocument(parseDrawingData(drawingData));
   }, [canvasId, drawingData]);
 
   const getWorldPoint = useCallback(
@@ -238,9 +260,20 @@ export function DrawingCanvas({
       height={worldSize}
       viewBox={`0 0 ${worldSize} ${worldSize}`}
     >
-      {document.strokes.map((stroke) => (
-        <StrokePath key={stroke.id} stroke={stroke} />
-      ))}
+      {document.strokes.map((stroke) => {
+        const selected = selectedStrokeIds.includes(stroke.id);
+        const display =
+          selected && previewOffset
+            ? {
+                ...stroke,
+                points: stroke.points.map((point) => ({
+                  x: point.x + previewOffset.x,
+                  y: point.y + previewOffset.y,
+                })),
+              }
+            : stroke;
+        return <StrokePath key={stroke.id} stroke={display} selected={selected} />;
+      })}
       {toolMode === 'brush' && liveStroke && <StrokePath stroke={{ ...liveStroke, color }} />}
       {showEraserPreview && <EraserPreviewPath points={liveStroke.points} />}
     </svg>

@@ -55,14 +55,19 @@ const RESIZE_HANDLES: { id: ResizeHandle; className: string; cursor: string }[] 
 export interface CanvasTextElementProps {
   element: TextElementState;
   isSelected: boolean;
+  isInGroup?: boolean;
+  isPreviewSelected?: boolean;
   isEditing: boolean;
   zoomRef?: MutableRefObject<number>;
   canvasOrigin?: { x: number; y: number };
-  onSelect: () => void;
+  peerOffset?: { x: number; y: number } | null;
+  onSelect: (event?: { shiftKey: boolean; keepGroup?: boolean }) => void;
   onStartEdit: () => void;
   onEndEdit: () => void;
   onUpdate: (element: TextElementState) => void;
   onRemove?: (id: string) => void;
+  onGroupDragLive?: (dx: number, dy: number) => void;
+  onGroupDragEnd?: (sourceId: string, dx: number, dy: number) => void;
 }
 
 function htmlToPlainText(html: string): string {
@@ -641,14 +646,19 @@ function ToolbarButton({
 export function CanvasTextElement({
   element,
   isSelected,
+  isInGroup = false,
+  isPreviewSelected = false,
   isEditing,
   zoomRef,
   canvasOrigin = { x: 0, y: 0 },
+  peerOffset = null,
   onSelect,
   onStartEdit,
   onEndEdit,
   onUpdate,
   onRemove,
+  onGroupDragLive,
+  onGroupDragEnd,
 }: CanvasTextElementProps) {
   const { id, text, html, fontSize, x, y, width, height } = element;
 
@@ -855,6 +865,7 @@ export function CanvasTextElement({
 
       if (mode === 'drag') {
         applyDragTranslate(el, dx, dy);
+        onGroupDragLive?.(dx, dy);
         return;
       }
 
@@ -893,6 +904,7 @@ export function CanvasTextElement({
           width,
           height,
         });
+        onGroupDragEnd?.(id, dx, dy);
       } else {
         const box = computeResizeBox(
           resizeHandleRef.current,
@@ -926,7 +938,14 @@ export function CanvasTextElement({
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('pointerup', handleMouseUp);
     };
-  }, [id, text, html, normalizedFontSize, width, height, onUpdate, zoomRef]);
+  }, [id, text, html, normalizedFontSize, width, height, onUpdate, onGroupDragLive, onGroupDragEnd, zoomRef]);
+
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || isInteracting) return;
+    if (peerOffset) applyDragTranslate(el, peerOffset.x, peerOffset.y);
+    else clearDragTransform(el);
+  }, [peerOffset, isInteracting]);
 
   const beginPointerAction = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -936,7 +955,7 @@ export function CanvasTextElement({
 
   const startInteraction = (mode: InteractionMode, e: React.MouseEvent, handle?: ResizeHandle) => {
     beginPointerAction(e);
-    onSelect();
+    onSelect({ shiftKey: false, keepGroup: isSelected });
     if (mode === 'resize' && handle) resizeHandleRef.current = handle;
     interactionRef.current = mode;
     setIsInteracting(true);
@@ -969,7 +988,20 @@ export function CanvasTextElement({
       window.open(anchor.href, '_blank', 'noopener,noreferrer');
       return;
     }
-    onSelect();
+    if (e.shiftKey) {
+      e.preventDefault();
+      clearTextSelection();
+      onSelect({ shiftKey: true });
+      return;
+    }
+    if (isInGroup) {
+      e.preventDefault();
+      clearTextSelection();
+      onSelect({ shiftKey: false, keepGroup: true });
+      startInteraction('drag', e);
+      return;
+    }
+    onSelect({ shiftKey: false });
     onStartEdit();
   };
 
@@ -1196,7 +1228,9 @@ export function CanvasTextElement({
         className={`relative h-full w-full overflow-hidden rounded-sm ${
           isSelected
             ? 'border border-zinc-600/80'
-            : 'hover:ring-1 hover:ring-zinc-600/60'
+            : isPreviewSelected
+              ? 'border border-yellow-400/80 shadow-[0_0_0_1px_rgba(250,204,21,0.55)]'
+              : 'hover:ring-1 hover:ring-zinc-600/60'
         }`}
       >
         {isEditing ? (

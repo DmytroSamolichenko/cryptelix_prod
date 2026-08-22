@@ -49,6 +49,8 @@ const RESIZE_HANDLES: { id: ResizeHandle; className: string; cursor: string }[] 
   { id: 'sw', className: 'bottom-0 left-0 -translate-x-1/2 translate-y-1/2', cursor: 'cursor-sw-resize' },
 ];
 
+export type CanvasSelectEvent = { shiftKey: boolean; keepGroup?: boolean };
+
 interface FlexibleWidgetProps {
   widget: Widget;
   onRemove: (id: string) => void;
@@ -57,8 +59,13 @@ interface FlexibleWidgetProps {
   canvasOrigin?: { x: number; y: number };
   zoomRef?: MutableRefObject<number>;
   isSelected?: boolean;
+  isInGroup?: boolean;
+  isPreviewSelected?: boolean;
   isEditing?: boolean;
-  onSelect?: () => void;
+  peerOffset?: { x: number; y: number } | null;
+  onSelect?: (event?: CanvasSelectEvent) => void;
+  onGroupDragLive?: (dx: number, dy: number) => void;
+  onGroupDragEnd?: (sourceId: string, dx: number, dy: number) => void;
   children: React.ReactNode;
 }
 
@@ -70,8 +77,13 @@ function FlexibleWidgetInner({
   canvasOrigin = { x: 0, y: 0 },
   zoomRef,
   isSelected = false,
+  isInGroup = false,
+  isPreviewSelected = false,
   isEditing = false,
+  peerOffset = null,
   onSelect,
+  onGroupDragLive,
+  onGroupDragEnd,
   children,
 }: FlexibleWidgetProps) {
   const [isInteracting, setIsInteracting] = useState(false);
@@ -88,6 +100,7 @@ function FlexibleWidgetInner({
     originX: 0,
     originY: 0,
   });
+  const suppressTextSelectRef = useRef(false);
   const pendingBodyDragRef = useRef<{
     clientX: number;
     clientY: number;
@@ -143,6 +156,7 @@ function FlexibleWidgetInner({
 
       if (mode === 'drag') {
         applyDragTranslate(el, dx, dy);
+        onGroupDragLive?.(dx, dy);
         return;
       }
 
@@ -173,6 +187,7 @@ function FlexibleWidgetInner({
       if (mode === 'drag') {
         if (el) clearDragTransform(el);
         onUpdatePosition(widget.id, { x: start.posX + dx, y: start.posY + dy });
+        onGroupDragEnd?.(widget.id, dx, dy);
       } else {
         const box = computeResizeBox(
           resizeHandleRef.current,
@@ -200,7 +215,14 @@ function FlexibleWidgetInner({
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('pointerup', handleMouseUp);
     };
-  }, [widget.id, onUpdatePosition, onUpdateSize, zoomRef, minWidth, minHeight]);
+  }, [widget.id, onUpdatePosition, onUpdateSize, onGroupDragLive, onGroupDragEnd, zoomRef, minWidth, minHeight]);
+
+  useEffect(() => {
+    const el = widgetRef.current;
+    if (!el || isInteracting) return;
+    if (peerOffset) applyDragTranslate(el, peerOffset.x, peerOffset.y);
+    else clearDragTransform(el);
+  }, [peerOffset, isInteracting]);
 
   const beginDragOrResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -225,10 +247,14 @@ function FlexibleWidgetInner({
     };
   };
 
+  const emitSelect = (e: { shiftKey: boolean }) => {
+    onSelect?.({ shiftKey: e.shiftKey, keepGroup: isSelected && !e.shiftKey });
+  };
+
   const handleMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.resize-handle')) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, textarea')) return;
-    onSelect?.();
+    emitSelect(e);
     startInteraction('drag', e);
   };
 
@@ -241,13 +267,35 @@ function FlexibleWidgetInner({
   const handleSelectOnly = (e: React.MouseEvent) => {
     if (isChromeHit(e.target)) return;
     e.stopPropagation();
-    onSelect?.();
+    if (e.shiftKey) return;
+    emitSelect(e);
+  };
+
+  const handlePointerCapture = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    if (isChromeHit(e.target)) return;
+    if (e.shiftKey) {
+      e.preventDefault();
+      suppressTextSelectRef.current = true;
+      clearTextSelection();
+      onSelect?.({ shiftKey: true });
+      return;
+    }
+    if (isInGroup) {
+      e.preventDefault();
+      suppressTextSelectRef.current = true;
+      clearTextSelection();
+      onSelect?.({ shiftKey: false, keepGroup: true });
+      startInteraction('drag', e);
+      return;
+    }
+    handleBodyDragCapture(e);
   };
 
   const handleBodyDragCapture = (e: React.MouseEvent) => {
     if (e.button !== 0 || e.detail < 2) return;
     if (isChromeHit(e.target)) return;
-    onSelect?.();
+    emitSelect(e);
     pendingBodyDragRef.current = {
       clientX: e.clientX,
       clientY: e.clientY,
@@ -261,7 +309,7 @@ function FlexibleWidgetInner({
   };
 
   const handleResizeStart = (handle: ResizeHandle) => (e: React.MouseEvent) => {
-    if (isTextField) onSelect?.();
+    if (isTextField) emitSelect(e);
     startInteraction('resize', e, handle);
   };
 
@@ -269,7 +317,7 @@ function FlexibleWidgetInner({
     if (isEditing) return;
     if ((e.target as HTMLElement).closest('.resize-handle')) return;
     e.stopPropagation();
-    onSelect?.();
+    emitSelect(e);
   };
 
   return (
@@ -283,7 +331,7 @@ function FlexibleWidgetInner({
         height: `${size.height}px`,
       }}
       onMouseDown={isTextField ? handleTextWrapperMouseDown : undefined}
-      onMouseDownCapture={isTextField ? undefined : handleBodyDragCapture}
+      onMouseDownCapture={isTextField ? undefined : handlePointerCapture}
     >
       {isTextField ? (
         <div className="relative h-full w-full">
@@ -340,9 +388,17 @@ function FlexibleWidgetInner({
             className={`group h-full overflow-hidden border bg-zinc-900 ${
               isSelected
                 ? 'border-zinc-600/80'
-                : 'border-zinc-800 hover:border-zinc-700'
+                : isPreviewSelected
+                  ? 'border-yellow-400/80 shadow-[0_0_0_1px_rgba(250,204,21,0.55)]'
+                  : 'border-zinc-800 hover:border-zinc-700'
             }`}
             onMouseDown={handleSelectOnly}
+            onMouseUp={() => {
+              suppressTextSelectRef.current = false;
+            }}
+            onSelectStart={(e) => {
+              if (suppressTextSelectRef.current || e.shiftKey) e.preventDefault();
+            }}
           >
             <button
               type="button"

@@ -7,6 +7,7 @@ const HELP_MARKDOWN = `## Canvas controls
 
 - **Pan** — middle or right mouse button, or hold **Space** and drag
 - **Zoom** — mouse wheel
+- **Select** — click and drag on empty canvas, or **Shift+click** widgets and drawings
 `;
 
 type HelpPanel = 'menu' | 'controls';
