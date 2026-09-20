@@ -2,6 +2,9 @@
 .env
 .env.local
 .env.*.local
+crptelix_web/.env
+crptelix_web/.env.local
+crptelix_web/.env.*.local
 
 # Internal readiness plan — transferred via private channels, not git
 OPEN_REGISTRATION_READINESS.md
