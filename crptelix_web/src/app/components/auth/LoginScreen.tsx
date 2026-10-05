@@ -452,6 +452,15 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
           >
             Privacy Policy
           </a>
+          {' '}and{' '}
+          <a
+            href="https://cryptelix.app/terms-and-conditions"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-yellow-500/90 underline decoration-yellow-500/40 underline-offset-2 hover:text-yellow-400"
+          >
+            Terms &amp; Conditions
+          </a>
           .
         </p>
       </motion.div>

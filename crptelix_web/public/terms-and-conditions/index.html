@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terms &amp; Conditions — Cryptelix</title>
+  <meta name="description" content="Cryptelix Terms & Conditions — the rules for using the AI Workspace for Post-Trade Analysis.">
+  <link rel="canonical" href="https://cryptelix.app/terms-and-conditions">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300;1,400&family=DM+Mono:wght@400;500&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --gold:     #C9A84C;
+      --bg:       #0C0C0C;
+      --surface:  #141414;
+      --line:     #1E1E1E;
+      --text:     #B8B8B8;
+      --dim:      #5C5C5C;
+      --bright:   #EBEBEB;
+      --red:      #C0504A;
+      --red-bg:   #140808;
+    }
+
+    body {
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.8;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .doc { max-width: 800px; margin: 0 auto; }
+
+    .section { padding: 64px 48px; }
+
+    .doc-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-bottom: 56px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid var(--line);
+      gap: 24px;
+    }
+
+    .doc-header img { height: 52px; width: auto; opacity: 0.85; flex-shrink: 0; }
+
+    .doc-title {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--dim);
+      letter-spacing: 0.04em;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      font-size: 30px;
+      font-weight: 300;
+      color: var(--bright);
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+    }
+
+    h1 span { color: var(--gold); }
+
+    h2 {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin-top: 52px;
+      margin-bottom: 22px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    h2::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--line);
+    }
+
+    p {
+      color: var(--text);
+      margin-bottom: 18px;
+      font-weight: 300;
+    }
+
+    p a, li a {
+      color: var(--gold);
+      text-decoration: none;
+    }
+
+    p a:hover, li a:hover { color: #d4b86a; }
+
+    .lead {
+      font-size: 16px;
+      color: #9A9A9A;
+      line-height: 1.85;
+      font-weight: 300;
+      margin-bottom: 0;
+    }
+
+    ul { list-style: none; padding: 0; margin: 0 0 20px; }
+
+    ul li {
+      padding: 10px 0 10px 18px;
+      position: relative;
+      color: var(--text);
+      font-weight: 300;
+      border-bottom: 1px solid var(--line);
+      font-size: 14.5px;
+    }
+
+    ul li:first-child { border-top: 1px solid var(--line); }
+
+    ul li::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--gold);
+      opacity: 0.7;
+    }
+
+    ul li strong { color: var(--bright); font-weight: 500; }
+
+    .table-wrap {
+      margin: 28px 0;
+      border: 1px solid var(--line);
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    table { width: 100%; border-collapse: collapse; min-width: 480px; }
+
+    th {
+      font-size: 10.5px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--dim);
+      text-align: left;
+      padding: 12px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 14px 16px;
+      font-size: 14px;
+      color: var(--text);
+      font-weight: 300;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    td:first-child { color: var(--bright); font-weight: 400; }
+    tr:last-child td { border-bottom: none; }
+
+    .note {
+      margin: 32px 0;
+      padding: 20px 24px;
+      border-left: 1px solid var(--gold);
+      background: rgba(201,168,76,0.04);
+    }
+
+    .note p { margin: 0; font-size: 14px; color: #A0A0A0; font-weight: 300; }
+
+    .note .note-label {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 8px;
+      display: block;
+      opacity: 0.9;
+    }
+
+    .note.warn { border-left-color: var(--red); background: var(--red-bg); }
+    .note.warn .note-label { color: #C07070; }
+    .note.warn p { color: #9A7070; }
+
+    .confirm {
+      font-family: 'DM Mono', ui-monospace, monospace;
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--gold);
+      letter-spacing: 0.02em;
+    }
+
+    .doc-footer {
+      padding: 32px 48px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .doc-footer p { font-size: 12px; color: var(--dim); margin: 0; font-weight: 300; }
+
+    .back-link {
+      display: inline-block;
+      margin: 24px 48px 0;
+      font-size: 13px;
+      color: var(--dim);
+      text-decoration: none;
+    }
+
+    .back-link:hover { color: var(--gold); }
+
+    @media (max-width: 600px) {
+      .section { padding: 40px 20px; }
+      .doc-header {
+        flex-direction: column-reverse;
+        align-items: flex-start;
+        gap: 20px;
+        margin-bottom: 40px;
+        padding-bottom: 24px;
+      }
+      .doc-header img { height: 36px; }
+      h1 { font-size: 24px; }
+      .doc-footer { padding: 24px 20px; flex-direction: column; align-items: flex-start; }
+      .back-link { margin: 16px 20px 0; }
+      td, th { padding: 12px 12px; font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+<a class="back-link" href="/">← Back to Cryptelix</a>
+<div class="doc">
+  <div class="section">
+    <div class="doc-header">
+      <div>
+        <p class="doc-title">Cryptelix Analytics Platform &mdash; September 2026</p>
+        <h1>Terms &amp; <span>Conditions</span></h1>
+      </div>
+      <img src="/cryptelix-wordmark.png" alt="Cryptelix">
+    </div>
+
+    <p class="lead">
+      Cryptelix is a workspace for looking at what already happened in your trading —
+      not a place that trades for you. These terms explain how the product works,
+      what we will and will not do, and what we ask of you.
+    </p>
+
+    <h2>Acceptance of Terms</h2>
+    <p>
+      By creating an account or using Cryptelix, you agree to these Terms &amp; Conditions.
+      If you do not agree, do not use the service.
+    </p>
+    <p>
+      This is a product-level draft. It has not been reviewed by a lawyer and is not
+      a claim of legal compliance in every jurisdiction.
+    </p>
+
+    <h2>Using Cryptelix</h2>
+    <p>
+      Cryptelix is an AI-powered post-trade analytics platform. It helps you review
+      historical trades, balances, and performance after the fact. You can sign in,
+      connect a supported exchange account, import trading history, and work with
+      dashboards, metrics, and an AI assistant.
+    </p>
+    <p>
+      Cryptelix is not a broker, exchange, bank, investment manager, or financial advisor.
+      We do not execute trades, hold your funds, or manage a portfolio on your behalf.
+    </p>
+
+    <h2>Accounts</h2>
+    <p>
+      Some features require an account. We ask for an email address to authenticate you
+      and send critical system notices. We do not ask for KYC, a full name, a phone number,
+      or a physical address.
+    </p>
+    <ul>
+      <li>Keep the information you give us accurate enough for account access.</li>
+      <li>You are responsible for keeping your credentials secure. On our side, we protect stored data as described in the <a href="/data-security-policy">Data Security Policy</a>.</li>
+      <li>You are responsible for activity that happens through your account.</li>
+      <li>If you think your account has been compromised, contact us as soon as you can.</li>
+    </ul>
+
+    <h2>Exchange API Connections</h2>
+    <p>
+      Today, the live exchange connection is Binance. Other venues shown in the product
+      are not available yet. When you connect Binance, Cryptelix uses a read-only API key
+      to pull historical balances, trades, and metrics for your workspace.
+    </p>
+    <p>
+      We do not need trading permissions. We do not need withdrawal permissions.
+      Before a key is stored, we check it with Binance and reject it if reading is off,
+      or if extra permissions are on — including spot and margin trading, futures,
+      options, internal transfer, or withdrawals.
+    </p>
+
+    <div class="note warn">
+      <span class="note-label">Important</span>
+      <p>
+        Never create a Binance key with trading or withdrawal permissions for Cryptelix.
+        We will never ask you to do that. You remain responsible for generating the correct
+        key. Cryptelix has no authority to place trades or move funds.
+      </p>
+    </div>
+
+    <p>
+      Keys are encrypted at rest and deleted when you remove them. Details of that handling
+      live in our <a href="/privacy-policy">Privacy Policy</a> and
+      <a href="/data-security-policy">Data Security Policy</a>.
+    </p>
+
+    <h2>Trading &amp; Financial Disclaimer</h2>
+    <p>
+      Cryptelix is an analytics and information tool. Nothing on the platform is financial
+      advice, investment advice, trading advice, a personalized recommendation, portfolio
+      management, or a brokerage service.
+    </p>
+    <p>
+      Dashboards, metrics, and AI output are observations about data you connected.
+      They are not instructions to buy, sell, or hold anything. You make your own
+      trading and investment decisions.
+    </p>
+
+    <h2>No Guarantee of Profits</h2>
+    <p>
+      Crypto trading involves substantial risk of loss. Past performance does not
+      guarantee future results. Analytics cannot guarantee future performance.
+      AI-generated insights cannot guarantee profitable trades. Cryptelix does not
+      guarantee any return, profit, or trading outcome.
+    </p>
+
+    <h2>AI Features</h2>
+    <p>
+      Where available, Cryptelix may use AI to help with post-trade review: summarizing
+      activity, pointing at patterns in your Deal Base, answering questions about
+      connected trading data, and offering observations on metrics you already have.
+    </p>
+    <p>AI output can be incomplete, inaccurate, outdated, based on limited data, or simply wrong. Treat it as a starting point, not a conclusion.</p>
+    <ul>
+      <li>We do not claim the assistant is always accurate.</li>
+      <li>We do not promise that AI will improve your profitability.</li>
+      <li>You should check anything important before you rely on it.</li>
+    </ul>
+
+    <h2>Data &amp; Analytics</h2>
+    <p>
+      Cryptelix processes the data you connect so we can show analytics. We do not
+      use that data to build ad profiles, share it with advertising networks, or
+      pass it to institutional brokers or data aggregators.
+    </p>
+    <p>
+      What we collect, how long we keep it, and how API keys are handled is described
+      in the <a href="/privacy-policy">Privacy Policy</a>. These Terms do not change
+      those rules. If the two ever seem to conflict, the Privacy Policy governs
+      personal-data questions.
+    </p>
+
+    <h2>User Responsibilities</h2>
+    <p>When you use Cryptelix, you agree to:</p>
+    <ul>
+      <li>Use the service lawfully.</li>
+      <li>Keep account access under your control.</li>
+      <li>Create exchange keys with read-only permissions only.</li>
+      <li>Not access another person's account or data.</li>
+      <li>Not interfere with, exploit, or reverse engineer the platform.</li>
+      <li>Not use Cryptelix for fraud or other illegal activity.</li>
+    </ul>
+
+    <h2>Prohibited Use</h2>
+    <p>You may not:</p>
+    <ul>
+      <li>Use the service for illegal activity or fraud.</li>
+      <li>Attempt unauthorized access or probe our security.</li>
+      <li>Scrape or automate access without permission.</li>
+      <li>Upload malicious code or disrupt availability.</li>
+      <li>Try to reach other users' data.</li>
+    </ul>
+
+    <h2>Intellectual Property</h2>
+    <p>
+      Cryptelix owns or licenses the platform, branding, software, design, and original
+      content. You do not receive ownership of any of that by using the product.
+    </p>
+    <p>
+      You keep your own trading data. You may not copy, redistribute, or commercially
+      exploit Cryptelix's software or branding without permission.
+    </p>
+
+    <h2>Third-Party Services</h2>
+    <p>
+      Cryptelix depends on services we do not control — including exchanges, market-data
+      APIs, hosting, and model providers. Those services can change, slow down, or
+      go offline. When they do, parts of Cryptelix may be delayed or unavailable.
+    </p>
+    <p>
+      Your use of a third-party platform is also subject to that platform's own terms.
+      We are not responsible for their outages, errors, or policy changes.
+    </p>
+
+    <h2>Crypto &amp; Blockchain Risks</h2>
+    <ul>
+      <li>Crypto markets can move quickly and lose value.</li>
+      <li>On-chain transfers, where they apply, are typically irreversible.</li>
+      <li>Networks and exchanges can congest, halt, or return delayed data.</li>
+      <li>Imported history can be incomplete or out of date.</li>
+      <li>Technical failures happen. Treat the workspace as a review tool, not a source of truth for execution.</li>
+    </ul>
+
+    <h2>Service Availability</h2>
+    <p>
+      We aim to keep Cryptelix available. We do not guarantee uninterrupted uptime,
+      zero errors, perfectly accurate data, or unbroken exchange connections.
+      Maintenance, upgrades, incidents, or third-party outages may pause the service.
+    </p>
+
+    <h2>Subscriptions &amp; Payments</h2>
+    <p>
+      Cryptelix is currently a limited-access product. There is no paid subscription
+      in the live product at the time these Terms were written.
+    </p>
+    <p>
+      If we introduce paid plans, the price and billing details will be shown before
+      you pay, and this section will be updated. Until then, the following are not set:
+    </p>
+    <ul>
+      <li><span class="confirm">[CONFIRM BILLING PROVIDER]</span></li>
+      <li><span class="confirm">[CONFIRM WHETHER SUBSCRIPTIONS AUTO-RENEW]</span></li>
+      <li><span class="confirm">[CONFIRM REFUND POLICY]</span></li>
+    </ul>
+
+    <h2>Account Suspension &amp; Termination</h2>
+    <p>
+      We may suspend or close access if you violate these Terms, abuse the platform,
+      attempt unauthorized access, create a security risk, or use the service for
+      fraud or other illegal activity.
+    </p>
+    <p>
+      You can stop using Cryptelix and close your account. We do not claim a right
+      to terminate accounts for any reason unrelated to the above.
+    </p>
+
+    <h2>Disclaimer of Warranties</h2>
+    <p>
+      To the extent permitted by applicable law, Cryptelix is provided “as is” and
+      “as available.” We do not warrant that the service, the data, or the AI output
+      will be complete, current, or error-free.
+    </p>
+
+    <h2>Limitation of Liability</h2>
+    <p>
+      To the extent permitted by applicable law, Cryptelix is not liable for losses
+      arising from trading decisions, financial results, inaccurate analytics,
+      AI-generated information, exchange or network failures, third-party services,
+      interruptions, or loss of data.
+    </p>
+    <p>
+      We have not set a specific monetary cap in these Terms.
+      <span class="confirm">[CONFIRM LIABILITY CAP, IF ANY]</span>
+    </p>
+
+    <h2>Changes to These Terms</h2>
+    <p>
+      We may update these Terms. The effective date is shown on this page.
+      If a change is material, we will notify you in an appropriate way —
+      <span class="confirm">[CONFIRM NOTICE METHOD]</span>.
+    </p>
+
+    <h2>Governing Law</h2>
+    <p>
+      The legal entity and jurisdiction for Cryptelix are not stated here yet.
+    </p>
+    <div class="note">
+      <span class="note-label">To confirm</span>
+      <p><span class="confirm">[CONFIRM GOVERNING LAW AND JURISDICTION]</span></p>
+    </div>
+
+    <h2>Contact</h2>
+    <p>
+      Questions about these Terms can be sent to the address below once it is published.
+    </p>
+    <p><span class="confirm">[ADD OFFICIAL CONTACT EMAIL]</span></p>
+  </div>
+
+  <div class="doc-footer">
+    <p>Cryptelix Analytics Platform</p>
+    <p>Effective September 2026 &mdash; supersedes all prior versions</p>
+  </div>
+</div>
+</body>
+</html>
