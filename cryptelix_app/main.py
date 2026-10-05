@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 from pathlib import Path
 
@@ -115,20 +116,15 @@ def _client_ip(request: Request) -> str | None:
 
 
 def _rate_limit_key(request: Request) -> str:
-    """Rate-limit bucket key = real client IP (not the shared proxy IP).
+    """Rate-limit bucket key = sha256 of the real client IP.
 
-    TEMPORARY: logs the candidate IP headers so we can confirm in production
-    which header actually carries the client IP, and that distinct users map to
-    distinct keys. Remove this log once verified in prod.
+    We hash so raw IPs never sit in Redis — the counter still works because the
+    hash is deterministic, but the store holds an opaque digest instead of a PII
+    address. The real IP is resolved from forwarded headers (see _client_ip);
+    request.client.host would be the shared proxy IP in production.
     """
-    ip = _client_ip(request)
-    print(
-        f"[ratelimit-ip] cf={request.headers.get('cf-connecting-ip')} "
-        f"xff={request.headers.get('x-forwarded-for')} "
-        f"client={request.client.host if request.client else None} -> key={ip}",
-        flush=True,
-    )
-    return ip or get_remote_address(request)
+    ip = _client_ip(request) or get_remote_address(request) or "unknown"
+    return hashlib.sha256(ip.encode("utf-8")).hexdigest()
 
 
 # C2: brute-force / abuse protection on sensitive endpoints, keyed by client IP.
