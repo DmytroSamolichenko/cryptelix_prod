@@ -122,12 +122,11 @@ def _rate_limit_key(request: Request) -> str:
     distinct keys. Remove this log once verified in prod.
     """
     ip = _client_ip(request)
-    logger.info(
-        "[ratelimit-ip] cf=%s xff=%s client=%s -> key=%s",
-        request.headers.get("cf-connecting-ip"),
-        request.headers.get("x-forwarded-for"),
-        request.client.host if request.client else None,
-        ip,
+    print(
+        f"[ratelimit-ip] cf={request.headers.get('cf-connecting-ip')} "
+        f"xff={request.headers.get('x-forwarded-for')} "
+        f"client={request.client.host if request.client else None} -> key={ip}",
+        flush=True,
     )
     return ip or get_remote_address(request)
 
