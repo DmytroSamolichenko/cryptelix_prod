@@ -13,3 +13,4 @@ aiohttp
 bcrypt
 PyJWT
 slowapi
+redis

@@ -99,8 +99,49 @@ logger = logging.getLogger("cryptelix")
 ENVIRONMENT = (os.getenv("ENVIRONMENT") or "development").strip().lower()
 IS_PRODUCTION = ENVIRONMENT in {"production", "prod"}
 
+def _client_ip(request: Request) -> str | None:
+    """Best-effort real client IP behind Railway/Cloudflare proxies.
+
+    request.client.host is the proxy IP in production, which would bucket every
+    user into one rate-limit key. The real client IP is forwarded in headers.
+    """
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return cf_ip.strip()
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
+def _rate_limit_key(request: Request) -> str:
+    """Rate-limit bucket key = real client IP (not the shared proxy IP).
+
+    TEMPORARY: logs the candidate IP headers so we can confirm in production
+    which header actually carries the client IP, and that distinct users map to
+    distinct keys. Remove this log once verified in prod.
+    """
+    ip = _client_ip(request)
+    logger.info(
+        "[ratelimit-ip] cf=%s xff=%s client=%s -> key=%s",
+        request.headers.get("cf-connecting-ip"),
+        request.headers.get("x-forwarded-for"),
+        request.client.host if request.client else None,
+        ip,
+    )
+    return ip or get_remote_address(request)
+
+
 # C2: brute-force / abuse protection on sensitive endpoints, keyed by client IP.
-limiter = Limiter(key_func=get_remote_address)
+# Storage: shared Redis in prod (REDIS_URL set) so limits are cross-instance and
+# survive restarts; in-memory locally (dev has no Redis). swallow_errors keeps a
+# Redis outage from breaking requests (fail-open, matches the agreed policy).
+_RATE_LIMIT_STORAGE = (os.getenv("REDIS_URL") or "").strip() or "memory://"
+limiter = Limiter(
+    key_func=_rate_limit_key,
+    storage_uri=_RATE_LIMIT_STORAGE,
+    swallow_errors=True,
+)
 
 # H5: do not expose the interactive API docs / OpenAI schema in production.
 app = FastAPI(
@@ -181,17 +222,6 @@ def _job_error_detail(exc: Exception, fallback: str) -> str:
     if IS_PRODUCTION:
         return fallback
     return f"[dev] {type(exc).__name__}: {exc}"
-
-
-def _client_ip(request: Request) -> str | None:
-    """Best-effort client IP behind Railway/Cloudflare proxies."""
-    cf_ip = request.headers.get("cf-connecting-ip")
-    if cf_ip:
-        return cf_ip.strip()
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else None
 
 
 def _require_turnstile(request: Request, token: str | None) -> None:
