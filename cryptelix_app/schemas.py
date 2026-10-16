@@ -146,3 +146,16 @@ class FeedbackSubmitRequest(BaseModel):
     q3: int = Field(..., ge=0, le=2)
     comment: str | None = Field(default=None, max_length=4000)
 
+
+class ConstructorBoardResponse(BaseModel):
+    revision: int
+    payload: dict
+    exists: bool = True
+
+
+class ConstructorBoardPutRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    revision: int = Field(..., ge=0)
+    payload: dict
+

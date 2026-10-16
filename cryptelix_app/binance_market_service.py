@@ -454,3 +454,162 @@ def format_market_snapshot_for_model(snapshot: dict[str, Any]) -> str:
         "Report facts only; do not give buy/sell advice."
     )
     return "\n".join(lines)
+
+
+# --- USDT-M futures funding (public fapi; separate from spot tickers above) ---
+
+BINANCE_FAPI_BASE = "https://fapi.binance.com"
+FUNDING_CACHE_TTL_SEC = 30.0
+_DEFAULT_FUNDING_INTERVAL_HOURS = 8.0
+
+
+def _fapi_get_json(path: str, params: dict[str, str] | None = None) -> Any:
+    query = urllib.parse.urlencode(params or {})
+    url = f"{BINANCE_FAPI_BASE}{path}"
+    if query:
+        url = f"{url}?{query}"
+    req = urllib.request.Request(
+        url,
+        headers={"Accept": "application/json", "User-Agent": "Cryptelix/1.0"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SEC) as resp:
+            body = resp.read().decode("utf-8")
+            if resp.status in (418, 429):
+                raise BinanceMarketError(
+                    f"Binance rate limited (HTTP {resp.status}). Try again shortly."
+                )
+            if resp.status >= 400:
+                raise BinanceMarketError(f"Binance HTTP {resp.status}: {body[:240]}")
+            return json.loads(body)
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        if exc.code in (418, 429):
+            raise BinanceMarketError(
+                f"Binance rate limited (HTTP {exc.code}). Try again shortly."
+            ) from exc
+        detail = body[:240] if body else str(exc)
+        raise BinanceMarketError(f"Binance HTTP {exc.code}: {detail}") from exc
+    except BinanceMarketError:
+        raise
+    except Exception as exc:
+        raise BinanceMarketError(f"Binance futures request failed: {exc}") from exc
+
+
+def _funding_interval_hours(symbol: str) -> float:
+    cache_key = "binance|fundingInfo"
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _cache.get(cache_key)
+        if hit and hit[0] > now:
+            table = hit[1]
+        else:
+            table = None
+    if table is None:
+        raw = _fapi_get_json("/fapi/v1/fundingInfo")
+        table = {}
+        if isinstance(raw, list):
+            for row in raw:
+                if isinstance(row, dict) and row.get("symbol"):
+                    table[str(row["symbol"])] = row
+        with _cache_lock:
+            # fundingInfo changes rarely — cache longer
+            _cache[cache_key] = (time.monotonic() + 300.0, table)
+    row = table.get(symbol) if isinstance(table, dict) else None
+    if isinstance(row, dict):
+        try:
+            hours = float(row.get("fundingIntervalHours") or _DEFAULT_FUNDING_INTERVAL_HOURS)
+            if hours > 0:
+                return hours
+        except (TypeError, ValueError):
+            pass
+    return _DEFAULT_FUNDING_INTERVAL_HOURS
+
+
+def get_funding_snapshot(symbol_raw: object, *, use_cache: bool = True) -> dict[str, Any]:
+    """
+    Normalized USDT-M funding snapshot for widgets (public, no user keys).
+
+    Uses premiumIndex (lastFundingRate, nextFundingTime, mark/index).
+    """
+    symbol = normalize_binance_symbol(symbol_raw)
+    cache_key = f"binance|funding|{symbol}"
+    if use_cache:
+        now = time.monotonic()
+        with _cache_lock:
+            hit = _cache.get(cache_key)
+            if hit and hit[0] > now:
+                out = dict(hit[1])
+                out["cached"] = True
+                return out
+
+    data = _fapi_get_json("/fapi/v1/premiumIndex", {"symbol": symbol})
+    rate = None
+    try:
+        rate = float(data.get("lastFundingRate"))
+    except (TypeError, ValueError):
+        raise BinanceMarketError(f"Invalid funding rate for {symbol}") from None
+
+    interval_hours = _funding_interval_hours(symbol)
+    rate_percent = rate * 100.0
+    # Normalize period rate → approximate % over 24h.
+    rate_24h = rate * (24.0 / interval_hours)
+    rate_24h_percent = rate_24h * 100.0
+
+    next_at = None
+    next_ms = data.get("nextFundingTime")
+    if next_ms is not None:
+        try:
+            next_at = datetime.fromtimestamp(
+                int(next_ms) / 1000.0, tz=timezone.utc
+            ).isoformat()
+        except (TypeError, ValueError, OSError):
+            next_at = None
+
+    mark = None
+    index = None
+    try:
+        mark = float(data.get("markPrice")) if data.get("markPrice") is not None else None
+    except (TypeError, ValueError):
+        mark = None
+    try:
+        index = float(data.get("indexPrice")) if data.get("indexPrice") is not None else None
+    except (TypeError, ValueError):
+        index = None
+
+    # Display base: BTCUSDT → BTC
+    base = symbol
+    for q in ("USDT", "USDC", "BUSD", "FDUSD"):
+        if base.endswith(q) and len(base) > len(q):
+            base = base[: -len(q)]
+            break
+
+    hours_i = int(interval_hours) if float(interval_hours).is_integer() else interval_hours
+    result = {
+        "venue": "binance",
+        "symbol": base,
+        "venue_symbol": symbol,
+        "funding_rate": rate,
+        "funding_rate_percent": rate_percent,
+        "interval_hours": interval_hours,
+        "settle_hours": interval_hours,
+        "rate_per_24h_percent": rate_24h_percent,
+        "rate_per_24h": rate_24h,
+        "next_funding_at": next_at,
+        "rate_as_of": datetime.now(timezone.utc).isoformat(),
+        "settle_model": f"Settles every {hours_i}h",
+        "mark_price": mark,
+        "index_price": index,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "cached": False,
+        "source": "binance_usdm_public",
+    }
+    if use_cache:
+        with _cache_lock:
+            _cache[cache_key] = (time.monotonic() + FUNDING_CACHE_TTL_SEC, dict(result))
+    return result

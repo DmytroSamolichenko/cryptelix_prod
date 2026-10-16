@@ -10,6 +10,7 @@ import { PriceChartWidget } from './PriceChartWidget';
 import { PnlCalendarWidget } from './PnlCalendarWidget';
 import { SymbolScorecardWidget } from './SymbolScorecardWidget';
 import { SessionHeatmapWidget } from './SessionHeatmapWidget';
+import { FundingRatesWidget } from './FundingRatesWidget';
 
 interface CanvasWidgetBodyProps {
   widget: Widget;
@@ -19,11 +20,13 @@ interface CanvasWidgetBodyProps {
     isPositive?: boolean,
     isNegative?: boolean
   ) => void;
+  onUpdateWidgetData?: (id: string, data: Record<string, unknown>) => void;
 }
 
 export const CanvasWidgetBody = memo(function CanvasWidgetBody({
   widget,
   onExtractMetric,
+  onUpdateWidgetData,
 }: CanvasWidgetBodyProps) {
   switch (widget.type) {
     case 'line-chart':
@@ -67,6 +70,14 @@ export const CanvasWidgetBody = memo(function CanvasWidgetBody({
 
     case 'session-heatmap':
       return <SessionHeatmapWidget />;
+
+    case 'funding-rates':
+      return (
+        <FundingRatesWidget
+          initialData={widget.data}
+          onPersistPrefs={(prefs) => onUpdateWidgetData?.(widget.id, prefs)}
+        />
+      );
 
     default:
       return (

@@ -1,4 +1,4 @@
-import { LayoutGrid, Paintbrush, Type, Plus, LineChart, BarChart3, AreaChart, PieChart, Zap, Table, Wallet, Calendar, ListOrdered, Clock, X } from 'lucide-react';
+import { LayoutGrid, Paintbrush, Type, Plus, LineChart, BarChart3, AreaChart, PieChart, Zap, Table, Wallet, Calendar, ListOrdered, Clock, Percent, X, Pencil } from 'lucide-react';
 import { WidgetType } from './DashboardWidget';
 import { motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
@@ -14,6 +14,7 @@ interface ConstructorBottomMenuProps {
   activeCanvasId: string;
   onCanvasChange: (id: string) => void;
   onCanvasAdd: () => void;
+  canAddCanvas?: boolean;
   onCanvasRename: (id: string, newName: string) => void;
   onCanvasDelete: (id: string) => void;
   isWidgetsOpen: boolean;
@@ -33,6 +34,7 @@ export function ConstructorBottomMenu({
   activeCanvasId,
   onCanvasChange,
   onCanvasAdd,
+  canAddCanvas = true,
   onCanvasRename,
   onCanvasDelete,
   isWidgetsOpen,
@@ -127,6 +129,13 @@ export function ConstructorBottomMenu({
       icon: Clock,
       label: 'Session Heatmap',
       description: 'Net P&L by UTC hour and weekday across the Deal Base.',
+    },
+    {
+      type: 'funding-rates' as WidgetType,
+      icon: Percent,
+      label: 'Funding Rates',
+      description:
+        'Live perp funding from Binance or Phoenix, with optional venue comparison and 24h holding-cost estimate.',
     },
   ];
 
@@ -306,8 +315,19 @@ export function ConstructorBottomMenu({
                   />
                 )}
                 <button
-                  onClick={() => onCanvasChange(canvas.id)}
-                  onDoubleClick={() => handleStartEditing(canvas.id, canvas.name)}
+                  type="button"
+                  onClick={() => {
+                    if (isActive) {
+                      handleStartEditing(canvas.id, canvas.name);
+                    } else {
+                      onCanvasChange(canvas.id);
+                    }
+                  }}
+                  onDoubleClick={(e) => {
+                    e.preventDefault();
+                    handleStartEditing(canvas.id, canvas.name);
+                  }}
+                  title={isActive ? 'Click to rename' : canvas.name}
                   className={`relative z-[1] flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition-transform duration-150 ease-out hover:scale-105 sm:gap-1.5 sm:px-4 sm:text-sm ${
                     isActive
                       ? 'bg-yellow-500 text-black'
@@ -315,6 +335,27 @@ export function ConstructorBottomMenu({
                   }`}
                 >
                   <span className="min-w-0 truncate">{canvas.name}</span>
+                  {isActive && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-zinc-950/80 text-zinc-100 ring-1 ring-black/25 transition-colors hover:bg-black hover:text-white"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleStartEditing(canvas.id, canvas.name);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleStartEditing(canvas.id, canvas.name);
+                        }
+                      }}
+                      title="Rename dashboard"
+                    >
+                      <Pencil className="block h-2.5 w-2.5 shrink-0" strokeWidth={2.5} />
+                    </span>
+                  )}
                   {canvases.length > 1 && isActive && (
                     <span
                       role="button"
@@ -341,11 +382,19 @@ export function ConstructorBottomMenu({
             );
           })}
           <motion.button
-            onClick={onCanvasAdd}
-            className="shrink-0 rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-zinc-800 hover:text-yellow-400"
-            title="Add new canvas"
-            whileHover={{ scale: 1.1, rotate: 90 }}
-            whileTap={{ scale: 0.9 }}
+            onClick={() => {
+              if (!canAddCanvas) return;
+              onCanvasAdd();
+            }}
+            disabled={!canAddCanvas}
+            className={`shrink-0 rounded-lg p-1.5 transition-colors ${
+              canAddCanvas
+                ? 'text-gray-400 hover:bg-zinc-800 hover:text-yellow-400'
+                : 'cursor-not-allowed text-zinc-600'
+            }`}
+            title={canAddCanvas ? 'Add new canvas' : 'Maximum 5 canvases'}
+            whileHover={canAddCanvas ? { scale: 1.1, rotate: 90 } : undefined}
+            whileTap={canAddCanvas ? { scale: 0.9 } : undefined}
           >
             <Plus className="h-4 w-4" />
           </motion.button>

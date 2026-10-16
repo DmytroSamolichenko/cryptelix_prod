@@ -66,6 +66,17 @@ from binance_market_service import (
     get_klines,
     pair_to_spot_symbol,
 )
+from venue_funding_service import (
+    SUPPORTED_VENUES,
+    VenueFundingError,
+    compare_venue_funding,
+    get_venue_funding,
+)
+from constructor_board_service import (
+    ConstructorBoardError,
+    get_board as get_constructor_board,
+    upsert_board as upsert_constructor_board,
+)
 from mfe_mae_service import fill_mfe_mae_for_user, trade_mfe_mae
 from models import ChatMessage as ChatMessageModel  # noqa: F401 — register ORM mapper
 from models import APIKey as APIKeyModel
@@ -82,6 +93,8 @@ from schemas import (
     AuthLoginRequest,
     AuthTokenResponse,
     CheckEmailResponse,
+    ConstructorBoardPutRequest,
+    ConstructorBoardResponse,
     ExchangeCredentialsUpsertRequest,
     ExchangeSyncTradesRequest,
     FeedbackStatusResponse,
@@ -243,7 +256,7 @@ app.add_middleware(
     allow_origins=_CORS_ORIGINS,
     allow_origin_regex=_CORS_ORIGIN_REGEX,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
     expose_headers=["Content-Disposition"],
 )
@@ -278,6 +291,46 @@ def post_auth_login(
 @app.get("/api/v1/auth/me", response_model=UserPublic)
 def get_auth_me(current_user: UserModel = Depends(get_current_user)):
     return user_to_public(current_user)
+
+
+@app.get("/api/v1/constructor/board", response_model=ConstructorBoardResponse)
+def get_constructor_board_endpoint(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Load personal Constructor board (text-field content decrypted)."""
+    try:
+        result = get_constructor_board(db, current_user.id)
+        return ConstructorBoardResponse(
+            revision=result["revision"],
+            payload=result["payload"],
+            exists=result["exists"],
+        )
+    except ConstructorBoardError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@app.put("/api/v1/constructor/board", response_model=ConstructorBoardResponse)
+def put_constructor_board_endpoint(
+    body: ConstructorBoardPutRequest,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Save personal Constructor board (encrypts text-field content at rest)."""
+    try:
+        result = upsert_constructor_board(
+            db,
+            current_user.id,
+            body.payload,
+            expected_revision=body.revision,
+        )
+        return ConstructorBoardResponse(
+            revision=result["revision"],
+            payload=result["payload"],
+            exists=result["exists"],
+        )
+    except ConstructorBoardError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/auth/logout")
@@ -337,6 +390,69 @@ async def get_market_klines(
         pair_to_spot_symbol(symbol)
         return get_klines(symbol, interval=interval, limit=limit)
     except BinanceMarketError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/venue/funding")
+async def get_venue_funding_endpoint(
+    venue: str = Query("binance", description="binance | phoenix"),
+    symbol: str = Query("BTC", description="Base or pair, e.g. BTC or BTCUSDT"),
+    notional: float = Query(10_000, ge=1, le=10_000_000),
+    position_side: str = Query("long", description="long | short"),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """
+    Live perpetual funding snapshot from a public venue API (cached ~30s).
+    Does not use the user's exchange API keys.
+    """
+    side = (position_side or "long").strip().lower()
+    if side not in ("long", "short"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="position_side must be long or short",
+        )
+    try:
+        return await run_in_threadpool(
+            get_venue_funding,
+            venue,
+            symbol,
+            notional=notional,
+            position_side=side,
+        )
+    except VenueFundingError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/venue/funding/compare")
+async def compare_venue_funding_endpoint(
+    symbol: str = Query("BTC"),
+    venues: str = Query(
+        "binance,phoenix",
+        description="Comma-separated venues, e.g. binance,phoenix",
+    ),
+    notional: float = Query(10_000, ge=1, le=10_000_000),
+    position_side: str = Query("long"),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Compare normalized 24h funding cost estimates across public venues."""
+    side = (position_side or "long").strip().lower()
+    if side not in ("long", "short"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="position_side must be long or short",
+        )
+    venue_list = [p.strip() for p in (venues or "").split(",") if p.strip()]
+    if not venue_list:
+        venue_list = list(SUPPORTED_VENUES)
+    try:
+        return await run_in_threadpool(
+            compare_venue_funding,
+            symbol,
+            venue_list,
+            notional=notional,
+            position_side=side,
+        )
+    except VenueFundingError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 

@@ -1,4 +1,4 @@
-import { memo, useRef, useEffect, useState, type MutableRefObject } from 'react';
+import { memo, useRef, useEffect, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject } from 'react';
 import { GripVertical, X } from 'lucide-react';
 import { Widget } from './DashboardWidget';
 import { Card } from './ui/card';
@@ -9,6 +9,11 @@ import {
   pinElementBox,
   computeResizeBox,
 } from '../lib/canvasInteraction';
+import {
+  stopWidgetRightClickPan,
+  WidgetLayerContextMenu,
+  type WidgetLayerAction,
+} from './WidgetLayerContextMenu';
 
 type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 type InteractionMode = 'idle' | 'drag' | 'resize';
@@ -27,7 +32,8 @@ function widgetBodyClass(type: Widget['type']): string {
     type === 'area-chart' ||
     type === 'pie-chart' ||
     type === 'pnl-calendar' ||
-    type === 'session-heatmap'
+    type === 'session-heatmap' ||
+    type === 'funding-rates'
   ) {
     return 'min-h-0 min-w-0 flex-1 overflow-hidden';
   }
@@ -41,6 +47,7 @@ function displayWidgetTitle(widget: Widget): string {
   if (widget.type === 'pnl-calendar') return 'PnL Calendar';
   if (widget.type === 'symbol-scorecard') return 'Symbol Scorecard';
   if (widget.type === 'session-heatmap') return 'Session Heatmap';
+  if (widget.type === 'funding-rates') return 'Funding Rates';
   return widget.title;
 }
 
@@ -72,6 +79,7 @@ interface FlexibleWidgetProps {
   onSelect?: (event?: CanvasSelectEvent) => void;
   onGroupDragLive?: (dx: number, dy: number) => void;
   onGroupDragEnd?: (sourceId: string, dx: number, dy: number) => void;
+  onLayerAction?: (action: WidgetLayerAction) => void;
   children: React.ReactNode;
 }
 
@@ -90,9 +98,11 @@ function FlexibleWidgetInner({
   onSelect,
   onGroupDragLive,
   onGroupDragEnd,
+  onLayerAction,
   children,
 }: FlexibleWidgetProps) {
   const [isInteracting, setIsInteracting] = useState(false);
+  const [layerMenu, setLayerMenu] = useState<{ x: number; y: number } | null>(null);
   const interactionRef = useRef<InteractionMode>('idle');
   const resizeHandleRef = useRef<ResizeHandle>('se');
   const widgetRef = useRef<HTMLDivElement>(null);
@@ -326,19 +336,42 @@ function FlexibleWidgetInner({
     emitSelect(e);
   };
 
+  const handleContextMenu = (e: ReactMouseEvent) => {
+    if (!onLayerAction) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onSelect?.({ shiftKey: false, keepGroup: true });
+    setLayerMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const layerZ = typeof widget.layer === 'number' ? widget.layer : 0;
+
   return (
     <div
       ref={widgetRef}
-      className={`absolute ${isTextField ? '' : 'group isolate'} ${isInteracting ? 'z-50 select-none' : isSelected ? 'z-40' : 'z-10'}`}
+      className={`absolute ${isTextField ? '' : 'group isolate'} ${isInteracting ? 'select-none' : ''}`}
       style={{
         left: `${displayX}px`,
         top: `${displayY}px`,
         width: `${size.width}px`,
         height: `${size.height}px`,
+        zIndex: isInteracting ? 50_000 : isSelected ? 40_000 + layerZ : 10_000 + layerZ,
       }}
       onMouseDown={isTextField ? handleTextWrapperMouseDown : undefined}
-      onMouseDownCapture={isTextField ? undefined : handlePointerCapture}
+      onMouseDownCapture={(e) => {
+        stopWidgetRightClickPan(e);
+        if (!isTextField) handlePointerCapture(e);
+      }}
+      onContextMenu={handleContextMenu}
     >
+      {layerMenu && onLayerAction && (
+        <WidgetLayerContextMenu
+          x={layerMenu.x}
+          y={layerMenu.y}
+          onAction={onLayerAction}
+          onClose={() => setLayerMenu(null)}
+        />
+      )}
       {isTextField ? (
         <div className="relative h-full w-full">
           {isSelected && (

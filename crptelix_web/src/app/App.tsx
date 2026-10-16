@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { AiBot } from './components/AiBot';
@@ -11,12 +11,20 @@ import { ConstructorBottomMenu } from './components/ConstructorBottomMenu';
 import { FeedbackSurveyHost } from './components/FeedbackSurveyHost';
 import { CanvasHelpHint } from './components/CanvasHelpHint';
 import { AppGuide, type GuidePhase } from './components/AppGuide';
-import { loadConstructorState, saveConstructorState } from './lib/dashboardStorage';
+import {
+  loadConstructorRevision,
+  loadConstructorState,
+  MAX_CONSTRUCTOR_CANVASES,
+  payloadFromState,
+  saveConstructorState,
+  stateFromPayload,
+} from './lib/dashboardStorage';
 import { DEFAULT_FONT_SIZE } from './components/CanvasTextElement';
 import { scalePx, scaleSize } from './lib/uiScale';
 import { APP_GUIDE_STEPS } from './lib/appGuideSteps';
 import { hasSeenAppGuide, markAppGuideSeen } from './lib/appGuideStorage';
 import type { AuthUser } from './lib/authStorage';
+import { apiFetch } from './lib/apiClient';
 
 interface Canvas {
   id: string;
@@ -25,7 +33,7 @@ interface Canvas {
 }
 
 function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void }) {
-  const [initialState] = useState(() => loadConstructorState());
+  const [initialState] = useState(() => loadConstructorState(user.id));
   const [canvases, setCanvases] = useState<Canvas[]>(initialState.canvases);
   const [activeCanvasId, setActiveCanvasId] = useState(initialState.activeCanvasId);
   const [currentView, setCurrentView] = useState<'constructor' | 'database'>('constructor');
@@ -37,6 +45,20 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
   const [drawingsByCanvasId, setDrawingsByCanvasId] = useState<Record<string, string>>(
     initialState.drawingsByCanvasId
   );
+  const [boardRevision, setBoardRevision] = useState(() => loadConstructorRevision(user.id));
+  const boardRevisionRef = useRef(boardRevision);
+  boardRevisionRef.current = boardRevision;
+  const [boardReady, setBoardReady] = useState(false);
+  const boardReadyRef = useRef(false);
+  const saveTimerRef = useRef<number | null>(null);
+  const saveInFlightRef = useRef(false);
+  const saveQueuedRef = useRef(false);
+  const latestBoardRef = useRef({
+    canvases: initialState.canvases,
+    activeCanvasId: initialState.activeCanvasId,
+    drawingsByCanvasId: initialState.drawingsByCanvasId,
+    brushColor: initialState.brushColor,
+  });
   const [guidePhase, setGuidePhase] = useState<GuidePhase>('idle');
   const [tourIndex, setTourIndex] = useState(0);
 
@@ -44,7 +66,148 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
   const widgets = activeCanvas?.widgets || [];
   const guideActive = guidePhase !== 'idle';
 
+  latestBoardRef.current = {
+    canvases,
+    activeCanvasId,
+    drawingsByCanvasId,
+    brushColor,
+  };
+
+  const applyBoardState = useCallback(
+    (
+      state: {
+        canvases: Canvas[];
+        activeCanvasId: string;
+        drawingsByCanvasId: Record<string, string>;
+        brushColor: string;
+      },
+      revision: number
+    ) => {
+      setCanvases(state.canvases);
+      setActiveCanvasId(state.activeCanvasId);
+      setDrawingsByCanvasId(state.drawingsByCanvasId);
+      setBrushColor(state.brushColor);
+      boardRevisionRef.current = revision;
+      setBoardRevision(revision);
+      saveConstructorState(user.id, state, revision);
+    },
+    [user.id]
+  );
+
+  const persistBoardToServer = useCallback(async () => {
+    if (!boardReadyRef.current) return;
+    if (saveInFlightRef.current) {
+      saveQueuedRef.current = true;
+      return;
+    }
+    saveInFlightRef.current = true;
+    try {
+      // Loop until no newer local edits arrived during the in-flight PUT.
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        saveQueuedRef.current = false;
+        const state = latestBoardRef.current;
+        const expectedRevision = boardRevisionRef.current;
+        saveConstructorState(user.id, state, expectedRevision);
+
+        const res = await apiFetch('/api/v1/constructor/board', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            revision: expectedRevision,
+            payload: payloadFromState(state),
+          }),
+        });
+
+        if (res.status === 409) {
+          // Stale revision: adopt server revision only, keep local edits, retry once.
+          const getRes = await apiFetch('/api/v1/constructor/board');
+          if (!getRes.ok) {
+            console.warn('Constructor board conflict resync failed', getRes.status);
+            break;
+          }
+          const data = (await getRes.json()) as { revision: number };
+          const serverRev = Number(data.revision) || expectedRevision;
+          if (serverRev === expectedRevision) {
+            console.warn('Constructor board conflict without revision bump');
+            break;
+          }
+          boardRevisionRef.current = serverRev;
+          setBoardRevision(serverRev);
+          saveQueuedRef.current = true;
+        } else if (!res.ok) {
+          console.warn('Constructor board save failed', res.status);
+        } else {
+          const data = (await res.json()) as { revision: number };
+          const nextRev = Number(data.revision) || expectedRevision;
+          boardRevisionRef.current = nextRev;
+          setBoardRevision(nextRev);
+          saveConstructorState(user.id, latestBoardRef.current, nextRev);
+        }
+
+        if (!saveQueuedRef.current) break;
+      }
+    } catch (err) {
+      console.warn('Constructor board save error', err);
+    } finally {
+      saveInFlightRef.current = false;
+      if (saveQueuedRef.current) {
+        saveQueuedRef.current = false;
+        window.setTimeout(() => {
+          void persistBoardToServer();
+        }, 250);
+      }
+    }
+  }, [user.id]);
+
+  const scheduleBoardSave = useCallback(() => {
+    if (!boardReadyRef.current) return;
+    if (saveTimerRef.current != null) {
+      window.clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      void persistBoardToServer();
+    }, 400);
+  }, [persistBoardToServer]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch('/api/v1/constructor/board');
+        if (!res.ok) throw new Error(`Failed to load board (${res.status})`);
+        const data = (await res.json()) as {
+          revision: number;
+          payload: unknown;
+          exists?: boolean;
+        };
+        if (cancelled) return;
+        if (data.exists) {
+          const state = stateFromPayload(data.payload);
+          if (state) {
+            applyBoardState(state, Number(data.revision) || 0);
+          }
+        } else {
+          // Keep user-scoped local cache; first PUT will create the row.
+          boardRevisionRef.current = 0;
+          setBoardRevision(0);
+        }
+      } catch (err) {
+        console.warn('Constructor board load failed; using local cache', err);
+      } finally {
+        if (!cancelled) {
+          boardReadyRef.current = true;
+          setBoardReady(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyBoardState, user.id]);
+
   const addCanvas = () => {
+    if (canvases.length >= MAX_CONSTRUCTOR_CANVASES) return;
     const newCanvas: Canvas = {
       id: `canvas-${Date.now()}`,
       name: `Dashboard ${canvases.length + 1}`,
@@ -136,18 +299,61 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
     );
   };
 
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      saveConstructorState({
-        canvases,
-        activeCanvasId,
-        drawingsByCanvasId,
-        brushColor,
-      });
-    }, 400);
+  const handleWidgetLayerAction = useCallback(
+    (id: string, action: 'front' | 'back') => {
+      setCanvases((prev) =>
+        prev.map((c) => {
+          if (c.id !== activeCanvasId) return c;
+          const layers = c.widgets.map((w) =>
+            typeof w.layer === 'number' && Number.isFinite(w.layer) ? w.layer : 0
+          );
+          if (layers.length === 0) return c;
+          const maxLayer = Math.max(...layers);
+          const minLayer = Math.min(...layers);
+          const nextLayer = action === 'front' ? maxLayer + 1 : minLayer - 1;
+          return {
+            ...c,
+            widgets: c.widgets.map((w) => (w.id === id ? { ...w, layer: nextLayer } : w)),
+          };
+        })
+      );
+    },
+    [activeCanvasId]
+  );
 
-    return () => window.clearTimeout(timeout);
-  }, [canvases, activeCanvasId, drawingsByCanvasId, brushColor]);
+  useEffect(() => {
+    if (!boardReady) return;
+    saveConstructorState(user.id, latestBoardRef.current, boardRevisionRef.current);
+    scheduleBoardSave();
+  }, [
+    boardReady,
+    canvases,
+    activeCanvasId,
+    drawingsByCanvasId,
+    brushColor,
+    user.id,
+    scheduleBoardSave,
+  ]);
+
+  useEffect(() => {
+    if (!boardReady) return;
+    const flush = () => {
+      if (saveTimerRef.current != null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      void persistBoardToServer();
+    };
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('beforeunload', flush);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('beforeunload', flush);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [boardReady, persistBoardToServer]);
 
   useEffect(() => {
     if (!hasSeenAppGuide(user.id)) {
@@ -232,6 +438,7 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
                 onUpdateWidgetPosition={handleUpdatePosition}
                 onUpdateWidgetSize={handleUpdateSize}
                 onUpdateWidgetData={handleUpdateWidgetData}
+                onWidgetLayerAction={handleWidgetLayerAction}
                 isWidgetsOpen={isWidgetsOpen}
                 isBrushActive={isBrushActive}
                 drawToolMode={drawToolMode}
@@ -273,6 +480,7 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
                       title: 'Text',
                       position: { x: scalePx(100), y: scalePx(100) },
                       size: scaleSize(280, 120),
+                      layer: 0,
                       data: { text: '', html: '', fontSize: DEFAULT_FONT_SIZE },
                     };
                     handleAddWidget(newTextField);
@@ -289,6 +497,7 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
                       'pnl-calendar': 'PnL Calendar',
                       'symbol-scorecard': 'Symbol Scorecard',
                       'session-heatmap': 'Session Heatmap',
+                      'funding-rates': 'Funding Rates',
                     };
                     const def = widgetDefaultSize(type);
                     const newWidget = {
@@ -300,6 +509,7 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
                         y: Math.floor(Math.random() * scalePx(200)) + scalePx(50),
                       },
                       size: scaleSize(def.width, def.height),
+                      layer: 0,
                     };
                     handleAddWidget(newWidget);
                   }}
@@ -307,6 +517,7 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
                   activeCanvasId={activeCanvasId}
                   onCanvasChange={setActiveCanvasId}
                   onCanvasAdd={addCanvas}
+                  canAddCanvas={canvases.length < MAX_CONSTRUCTOR_CANVASES}
                   onCanvasRename={renameCanvas}
                   onCanvasDelete={deleteCanvas}
                   isWidgetsOpen={isWidgetsOpen}

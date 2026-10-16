@@ -31,7 +31,8 @@ export type WidgetType =
   | 'portfolio-widget'
   | 'pnl-calendar'
   | 'symbol-scorecard'
-  | 'session-heatmap';
+  | 'session-heatmap'
+  | 'funding-rates';
 
 export function widgetDefaultSize(type: WidgetType): { width: number; height: number } {
   switch (type) {
@@ -46,6 +47,8 @@ export function widgetDefaultSize(type: WidgetType): { width: number; height: nu
       return { width: 480, height: 380 };
     case 'session-heatmap':
       return { width: 460, height: 440 };
+    case 'funding-rates':
+      return { width: 420, height: 400 };
     default:
       return { width: 400, height: 320 };
   }
@@ -57,6 +60,8 @@ export interface Widget {
   title: string;
   position?: { x: number; y: number };
   size?: { width: number; height: number };
+  /** Stacking order within the canvas (higher = above). Default 0. */
+  layer?: number;
   data?: any;
 }
 

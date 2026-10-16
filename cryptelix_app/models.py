@@ -544,6 +544,27 @@ class AiUsageEvent(Base):
     )
 
 
+class ConstructorBoard(Base):
+    """Personal Constructor board snapshot (one row per user). DDL applied manually."""
+
+    __tablename__ = "constructor_boards"
+    __table_args__ = {"schema": "public"}
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    revision = Column(Integer, nullable=False, default=1, server_default="1")
+    payload = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 if __name__ == "__main__":
 
     Base.metadata.create_all(bind=engine)

@@ -6,8 +6,18 @@ crptelix_web/.env
 crptelix_web/.env.local
 crptelix_web/.env.*.local
 
-# Internal readiness plan — transferred via private channels, not git
-OPEN_REGISTRATION_READINESS.md
+# Personal / local documentation — not for git / publishing
+docs/
+*.md
+!README.md
+!**/README.md
+*.docx
+*.doc
+*.pdf
+*.rtf
+*.odt
+~$*
+~WRL*.tmp
 
 # Python
 __pycache__/
@@ -44,11 +54,6 @@ Thumbs.db
 # Optional: local DB dumps
 *.sql
 *.dump
-
-# Local business docs (not source code)
-*.docx
-~$*
-~WRL*.tmp
 
 # One-off debug scripts (may touch keys)
 debug_key.py

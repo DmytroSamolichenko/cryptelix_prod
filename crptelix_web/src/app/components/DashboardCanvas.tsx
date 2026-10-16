@@ -28,6 +28,7 @@ interface DashboardCanvasProps {
   onUpdateWidgetPosition: (id: string, position: { x: number; y: number }) => void;
   onUpdateWidgetSize: (id: string, size: { width: number; height: number }) => void;
   onUpdateWidgetData: (id: string, data: Record<string, unknown>) => void;
+  onWidgetLayerAction: (id: string, action: 'front' | 'back') => void;
   isWidgetsOpen: boolean;
   isBrushActive: boolean;
   drawToolMode: 'brush' | 'eraser';
@@ -213,6 +214,7 @@ export function DashboardCanvas({
   onUpdateWidgetPosition, 
   onUpdateWidgetSize,
   onUpdateWidgetData,
+  onWidgetLayerAction,
   isWidgetsOpen,
   isBrushActive,
   drawToolMode,
@@ -998,6 +1000,7 @@ export function DashboardCanvas({
       'pnl-calendar': 'PnL Calendar',
       'symbol-scorecard': 'Symbol Scorecard',
       'session-heatmap': 'Session Heatmap',
+      'funding-rates': 'Funding Rates',
     };
 
     const randomX = Math.floor(Math.random() * 400) + 50;
@@ -1010,6 +1013,7 @@ export function DashboardCanvas({
       title: widgetTitles[type] || 'Widget',
       position: { x: randomX, y: randomY },
       size: scaleSize(def.width, def.height),
+      layer: 0,
     };
     onAddWidget(newWidget);
   };
@@ -1026,6 +1030,7 @@ export function DashboardCanvas({
         title: label,
         position: { x: Math.floor(Math.random() * 400) + 50, y: Math.floor(Math.random() * 200) + 50 },
         size: { width: 300, height: 180 },
+        layer: 0,
         data: { value, isPositive, isNegative, ftrMetricKey },
       };
       onAddWidget(newWidget);
@@ -1094,7 +1099,14 @@ export function DashboardCanvas({
               backgroundSize: `24px 24px, 48px 48px, 48px 48px`,
             }}
           >
-            {widgets.map((widget) => {
+            {[...widgets]
+              .sort((a, b) => {
+                const la = typeof a.layer === 'number' ? a.layer : 0;
+                const lb = typeof b.layer === 'number' ? b.layer : 0;
+                if (la !== lb) return la - lb;
+                return String(a.id).localeCompare(String(b.id));
+              })
+              .map((widget) => {
               if (widget.type === 'text-field') {
                 const isSelected = selectedWidgetIds.includes(widget.id);
                 const isEditing = editingWidgetId === widget.id;
@@ -1133,6 +1145,8 @@ export function DashboardCanvas({
                     }}
                     onGroupDragLive={(dx, dy) => handleGroupDragLive(widget.id, dx, dy)}
                     onGroupDragEnd={handleGroupDragEnd}
+                    onLayerAction={(action) => onWidgetLayerAction(widget.id, action)}
+                    layer={typeof widget.layer === 'number' ? widget.layer : 0}
                   />
                 );
               }
@@ -1166,8 +1180,13 @@ export function DashboardCanvas({
                   }}
                   onGroupDragLive={(dx, dy) => handleGroupDragLive(widget.id, dx, dy)}
                   onGroupDragEnd={handleGroupDragEnd}
+                  onLayerAction={(action) => onWidgetLayerAction(widget.id, action)}
                 >
-                  <CanvasWidgetBody widget={widget} onExtractMetric={handleExtractMetric} />
+                  <CanvasWidgetBody
+                    widget={widget}
+                    onExtractMetric={handleExtractMetric}
+                    onUpdateWidgetData={onUpdateWidgetData}
+                  />
                 </FlexibleWidget>
               );
             })}

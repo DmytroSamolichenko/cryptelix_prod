@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Bold,
@@ -22,6 +22,11 @@ import {
   pinElementBox,
   computeResizeBox,
 } from '../lib/canvasInteraction';
+import {
+  stopWidgetRightClickPan,
+  WidgetLayerContextMenu,
+  type WidgetLayerAction,
+} from './WidgetLayerContextMenu';
 
 export interface TextElementState {
   id: string;
@@ -68,6 +73,8 @@ export interface CanvasTextElementProps {
   onRemove?: (id: string) => void;
   onGroupDragLive?: (dx: number, dy: number) => void;
   onGroupDragEnd?: (sourceId: string, dx: number, dy: number) => void;
+  onLayerAction?: (action: WidgetLayerAction) => void;
+  layer?: number;
 }
 
 function htmlToPlainText(html: string): string {
@@ -659,10 +666,13 @@ export function CanvasTextElement({
   onRemove,
   onGroupDragLive,
   onGroupDragEnd,
+  onLayerAction,
+  layer = 0,
 }: CanvasTextElementProps) {
   const { id, text, html, fontSize, x, y, width, height } = element;
 
   const [isInteracting, setIsInteracting] = useState(false);
+  const [layerMenu, setLayerMenu] = useState<{ x: number; y: number } | null>(null);
   const interactionRef = useRef<InteractionMode>('idle');
   const editableRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -1191,17 +1201,36 @@ export function CanvasTextElement({
     textAlign: 'center' as const,
   };
 
+  const handleContextMenu = (e: ReactMouseEvent) => {
+    if (!onLayerAction) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onSelect({ shiftKey: false, keepGroup: true });
+    setLayerMenu({ x: e.clientX, y: e.clientY });
+  };
+
   return (
     <div
       ref={rootRef}
-      className={`absolute ${isInteracting ? 'z-50 select-none' : isSelected ? 'z-40' : 'z-10'}`}
+      className={`absolute ${isInteracting ? 'select-none' : ''}`}
       style={{
         left: `${displayX}px`,
         top: `${displayY}px`,
         width: `${width}px`,
         height: `${height}px`,
+        zIndex: isInteracting ? 50_000 : isSelected ? 40_000 + layer : 10_000 + layer,
       }}
+      onMouseDownCapture={stopWidgetRightClickPan}
+      onContextMenu={handleContextMenu}
     >
+      {layerMenu && onLayerAction && (
+        <WidgetLayerContextMenu
+          x={layerMenu.x}
+          y={layerMenu.y}
+          onAction={onLayerAction}
+          onClose={() => setLayerMenu(null)}
+        />
+      )}
       {isSelected && (
         <div className="absolute -top-9 left-0 z-50 flex items-center gap-0.5 rounded-md border border-zinc-700 bg-zinc-900/95 px-1 py-0.5 shadow-lg">
           <div
