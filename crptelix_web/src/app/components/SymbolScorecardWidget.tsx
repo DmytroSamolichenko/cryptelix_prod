@@ -2,6 +2,9 @@ import { useMemo } from 'react';
 
 import { formatUsd, parseNum, tradeNet, type TradeRow } from '../lib/tradeMetrics';
 import { useDealBaseTrades } from '../lib/useDealBaseTrades';
+import { LOSS, WIN } from '../lib/widgetColors';
+
+const NEUTRAL = '#e8e4d9';
 
 type ScoreRow = {
   pair: string;
@@ -52,48 +55,50 @@ export function SymbolScorecardWidget() {
       .sort((a, b) => b.net - a.net);
   }, [trades]);
 
-  if (rows.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center text-xs text-zinc-500">
-        No trades yet
-      </div>
-    );
-  }
-
   return (
-    <div className="h-full min-h-0">
-      <table className="w-full text-left text-[11px]">
-        <thead className="sticky top-0 bg-zinc-900 text-zinc-500">
-          <tr>
-            <th className="px-1.5 py-1 font-medium">Pair</th>
-            <th className="px-1.5 py-1 text-right font-medium">n</th>
-            <th className="px-1.5 py-1 text-right font-medium">WR</th>
-            <th className="px-1.5 py-1 text-right font-medium">Net</th>
-            <th className="px-1.5 py-1 text-right font-medium">R</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.pair} className="border-t border-zinc-800/80">
-              <td className="max-w-[7rem] truncate px-1.5 py-1 text-zinc-200">{r.pair}</td>
-              <td className="px-1.5 py-1 text-right tabular-nums text-zinc-300">{r.n}</td>
-              <td className="px-1.5 py-1 text-right tabular-nums text-zinc-300">
-                {r.winRate.toFixed(0)}%
-              </td>
-              <td
-                className={`px-1.5 py-1 text-right tabular-nums ${
-                  r.net > 0 ? 'text-green-400' : r.net < 0 ? 'text-red-400' : 'text-zinc-400'
-                }`}
-              >
-                {formatUsd(r.net)}
-              </td>
-              <td className="px-1.5 py-1 text-right tabular-nums text-zinc-300">
-                {r.avgR != null ? `${r.avgR.toFixed(2)}R` : '—'}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col gap-2 overflow-hidden bg-[#0c0c0c] px-4 pb-3 pr-9 pt-3.5 text-[#e8e4d9] [contain:layout]">
+      <h3 className="widget-drag-handle shrink-0 truncate text-[17px] font-medium leading-tight text-yellow-500">
+        Symbol Scorecard
+      </h3>
+      {rows.length === 0 ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center text-xs text-zinc-500">
+          No trades yet
+        </div>
+      ) : (
+        <div className="widget-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+          <table className="w-full text-left text-[11px]">
+            <thead className="sticky top-0 bg-[#0c0c0c] text-zinc-500">
+              <tr>
+                <th className="px-1.5 py-1 font-medium">Pair</th>
+                <th className="px-1.5 py-1 text-right font-medium">n</th>
+                <th className="px-1.5 py-1 text-right font-medium">WR</th>
+                <th className="px-1.5 py-1 text-right font-medium">Net</th>
+                <th className="px-1.5 py-1 text-right font-medium">R</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.pair} className="border-t border-zinc-800">
+                  <td className="max-w-[7rem] truncate px-1.5 py-1 text-[#e8e4d9]">{r.pair}</td>
+                  <td className="px-1.5 py-1 text-right tabular-nums text-[#e8e4d9]">{r.n}</td>
+                  <td className="px-1.5 py-1 text-right tabular-nums text-[#e8e4d9]">
+                    {r.winRate.toFixed(0)}%
+                  </td>
+                  <td
+                    className="px-1.5 py-1 text-right tabular-nums"
+                    style={{ color: r.net > 0 ? WIN : r.net < 0 ? LOSS : NEUTRAL }}
+                  >
+                    {formatUsd(r.net)}
+                  </td>
+                  <td className="px-1.5 py-1 text-right tabular-nums text-[#e8e4d9]">
+                    {r.avgR != null ? `${r.avgR.toFixed(2)}R` : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

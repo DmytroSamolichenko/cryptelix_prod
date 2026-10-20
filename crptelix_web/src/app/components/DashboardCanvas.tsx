@@ -37,6 +37,9 @@ interface DashboardCanvasProps {
   drawingDataUrl?: string;
   onDrawingChange?: (dataUrl: string) => void;
   canvasId?: string;
+  /** Text widget just created from the toolbar; opens in edit mode once, then `onAutoEditHandled` clears it. */
+  autoEditWidgetId?: string | null;
+  onAutoEditHandled?: () => void;
 }
 
 /** Workspace plane — scroll/pan in any direction (middle mouse, right mouse, or Space + drag) */
@@ -222,6 +225,8 @@ export function DashboardCanvas({
   drawingDataUrl,
   onDrawingChange,
   canvasId,
+  autoEditWidgetId = null,
+  onAutoEditHandled,
 }: DashboardCanvasProps) {
   const [zoom, setZoom] = useState(DEFAULT_CANVAS_ZOOM);
   const zoomRef = useRef(DEFAULT_CANVAS_ZOOM);
@@ -242,7 +247,6 @@ export function DashboardCanvas({
   const [boundsDragging, setBoundsDragging] = useState(false);
   const [widgetsOffScreen, setWidgetsOffScreen] = useState(false);
   const [isScrollingToWidgets, setIsScrollingToWidgets] = useState(false);
-  const knownTextWidgetIdsRef = useRef(new Set<string>());
   const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
   const marqueeRef = useRef<WorldRect | null>(null);
   const groupBoundsDragRef = useRef<{ clientX: number; clientY: number } | null>(null);
@@ -696,14 +700,12 @@ export function DashboardCanvas({
   );
 
   useEffect(() => {
-    for (const w of widgets) {
-      if (w.type !== 'text-field' || knownTextWidgetIdsRef.current.has(w.id)) continue;
-      knownTextWidgetIdsRef.current.add(w.id);
-      setSelectedWidgetIds([w.id]);
-      setSelectedStrokeIds([]);
-      setEditingWidgetId(w.id);
-    }
-  }, [widgets]);
+    if (!autoEditWidgetId || !widgets.some((w) => w.id === autoEditWidgetId)) return;
+    setSelectedWidgetIds([autoEditWidgetId]);
+    setSelectedStrokeIds([]);
+    setEditingWidgetId(autoEditWidgetId);
+    onAutoEditHandled?.();
+  }, [autoEditWidgetId, widgets, onAutoEditHandled]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {

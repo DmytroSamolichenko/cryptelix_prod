@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 'react';
 import {
   Area,
   CartesianGrid,
@@ -22,6 +22,7 @@ type TrendPoint = {
 
 import { apiFetch } from '../lib/apiClient';
 import { useTradesSynced } from '../lib/useTradesSynced';
+import { LOSS as RED, WIN as GREEN } from '../lib/widgetColors';
 
 const TIME_SCALE_BUTTONS: { key: ProfitTrendTimeScale; label: string }[] = [
   { key: 'trades', label: 'Trades' },
@@ -30,8 +31,13 @@ const TIME_SCALE_BUTTONS: { key: ProfitTrendTimeScale; label: string }[] = [
   { key: 'months', label: 'Months' },
 ];
 
-const GREEN = '#089981';
-const RED = '#f23645';
+const AXIS = '#6b675c';
+const GRID = 'rgba(201,168,76,0.12)';
+const NEUTRAL = '#e8e4d9';
+
+function stopWidgetDrag(event: MouseEvent) {
+  event.stopPropagation();
+}
 
 function formatCompactUsd(value: number): string {
   if (Math.abs(value) < 0.5) return '$0';
@@ -149,12 +155,11 @@ function ProfitTrendTooltip({
     period === 'months' ? formatMonthAxisLabel(String(label)) : formatAxisDateLabel(String(label));
 
   return (
-    <div className="rounded-lg border border-zinc-700/80 bg-zinc-900/95 px-3 py-2 shadow-xl backdrop-blur-sm">
+    <div className="rounded-lg border border-yellow-900/40 bg-zinc-950 px-3 py-2 shadow-xl">
       <p className="mb-0.5 text-[10px] text-zinc-500">{xLabel}</p>
       <p
-        className={`text-sm font-semibold tabular-nums ${
-          value > 0 ? 'text-[#089981]' : value < 0 ? 'text-[#f23645]' : 'text-zinc-300'
-        }`}
+        className="text-sm font-semibold tabular-nums"
+        style={{ color: value > 0 ? GREEN : value < 0 ? RED : NEUTRAL }}
       >
         {formatFullUsd(value)}
       </p>
@@ -176,13 +181,15 @@ function ProfitTrendActiveDot(props: {
       cy={cy}
       r={4}
       fill={color}
-      stroke="#18181b"
+      stroke="#0c0c0c"
       strokeWidth={2}
     />
   );
 }
 
 export function ProfitTrendWidget() {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
   const [data, setData] = useState<TrendPoint[]>([]);
   const [period, setPeriod] = useState<ProfitTrendTimeScale>('trades');
   const [loading, setLoading] = useState(true);
@@ -222,6 +229,17 @@ export function ProfitTrendWidget() {
   }, [period]);
 
   useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    // Padding depends on `dense`, so measure the padding box; contentRect would oscillate.
+    const ro = new ResizeObserver(() => {
+      setBox({ w: el.clientWidth, h: el.clientHeight });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
     void fetchProfitTrend();
   }, [fetchProfitTrend]);
 
@@ -235,49 +253,67 @@ export function ProfitTrendWidget() {
   const hasPositive = data.some((d) => d.balance > 0);
   const hasNegative = data.some((d) => d.balance < 0);
   const latestBalance = data.length ? data[data.length - 1].balance : 0;
+  const dense = (box.w > 0 && box.w < 472) || (box.h > 0 && box.h < 286);
+  const scale = box.w > 0 ? Math.min(1, Math.max(0.82, (box.w - 52) / 520)) : 1;
+  const valueSize = Math.round((dense ? 13 : 15) * scale);
+  const tabClass = dense ? 'px-1.5 py-0.5 text-[10px] ' : 'px-2 py-0.5 text-[11px] ';
+  const axisSize = dense ? 9 : 10;
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col [contain:layout]">
-      <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
-        <p
-          className={`truncate text-sm font-semibold tabular-nums ${
-            latestBalance > 0
-              ? 'text-[#089981]'
-              : latestBalance < 0
-                ? 'text-[#f23645]'
-                : 'text-zinc-400'
-          }`}
-        >
-          {loading && data.length === 0 ? '—' : formatFullUsd(latestBalance)}
-        </p>
-        <div className="flex shrink-0 gap-0.5">
+    <div
+      ref={rootRef}
+      className={
+        'flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-[#0c0c0c] pr-9 text-[#e8e4d9] [contain:layout] ' +
+        (dense ? 'gap-1.5 px-3 pb-2 pt-3' : 'gap-2 px-4 pb-3 pt-3.5')
+      }
+    >
+      <div className="flex shrink-0 items-start justify-between gap-2">
+        <h3 className="widget-drag-handle min-w-0 truncate text-[17px] font-medium leading-tight text-yellow-500">
+          Cul. PnL
+        </h3>
+        <div className="relative z-20 mt-1 flex shrink-0 rounded-lg border border-yellow-600/45 p-0.5">
           {TIME_SCALE_BUTTONS.map(({ key, label }) => (
             <button
               key={key}
               type="button"
-              onClick={() => setPeriod(key)}
-              className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-                period === key
-                  ? 'bg-yellow-500/15 text-yellow-400'
-                  : 'text-zinc-500 hover:text-zinc-300'
-              }`}
+              onMouseDown={stopWidgetDrag}
+              onClick={(event) => {
+                stopWidgetDrag(event);
+                setPeriod(key);
+              }}
+              className={
+                'rounded-md font-medium ' +
+                tabClass +
+                (period === key
+                  ? 'bg-yellow-500/15 text-yellow-500'
+                  : 'text-zinc-500 hover:text-zinc-300')
+              }
             >
               {label}
             </button>
           ))}
         </div>
       </div>
+      <p
+        className="shrink-0 truncate font-medium leading-none tracking-tight tabular-nums"
+        style={{
+          fontSize: valueSize,
+          color: latestBalance > 0 ? GREEN : latestBalance < 0 ? RED : NEUTRAL,
+        }}
+      >
+        {loading && data.length === 0 ? '—' : formatFullUsd(latestBalance)}
+      </p>
 
-      <div className="relative min-h-0 min-w-0 flex-1">
+      <div className="relative min-h-0 min-w-0 flex-1 px-0.5 pb-1 pt-1">
         {loading && data.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-xs text-zinc-500">Loading…</div>
+          <div className="flex h-full items-center justify-center text-xs text-[#6b675c]">Loading…</div>
         ) : data.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-xs text-zinc-500">
+          <div className="flex h-full items-center justify-center text-xs text-[#6b675c]">
             No profit data yet
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+            <ComposedChart data={data} margin={{ top: 8, right: 6, left: 0, bottom: 4 }}>
               <defs>
                 <linearGradient id={posFillId} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={GREEN} stopOpacity={0.28} />
@@ -289,12 +325,12 @@ export function ProfitTrendWidget() {
                 </linearGradient>
               </defs>
 
-              <CartesianGrid stroke="#27272a" strokeDasharray="3 6" vertical={false} />
+              <CartesianGrid stroke={GRID} strokeDasharray="3 5" vertical={false} />
 
               <XAxis
                 dataKey="date"
-                tick={{ fontSize: 10, fill: '#71717a' }}
-                axisLine={{ stroke: '#3f3f46' }}
+                tick={{ fontSize: axisSize, fill: AXIS }}
+                axisLine={{ stroke: AXIS }}
                 tickLine={false}
                 tickFormatter={xTickFormatter}
                 interval="preserveStartEnd"
@@ -304,7 +340,7 @@ export function ProfitTrendWidget() {
 
               <YAxis
                 domain={[minY, maxY]}
-                tick={{ fontSize: 10, fill: '#71717a' }}
+                tick={{ fontSize: axisSize, fill: AXIS }}
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={(v) => formatCompactUsd(Number(v))}
@@ -313,11 +349,11 @@ export function ProfitTrendWidget() {
               />
 
               {crossesZero && (
-                <ReferenceLine y={0} stroke="#52525b" strokeWidth={1} />
+                <ReferenceLine y={0} stroke={AXIS} strokeWidth={1} />
               )}
 
               <Tooltip
-                cursor={{ stroke: '#52525b', strokeWidth: 1, strokeDasharray: '3 3' }}
+                cursor={{ stroke: AXIS, strokeWidth: 1, strokeDasharray: '3 3' }}
                 content={<ProfitTrendTooltip period={period} />}
               />
 
@@ -327,7 +363,7 @@ export function ProfitTrendWidget() {
                   dataKey="negative"
                   baseValue={0}
                   stroke="none"
-                  fill={`url(#${negFillId})`}
+                  fill={'url(#' + negFillId + ')'}
                   connectNulls={false}
                   isAnimationActive={false}
                   dot={false}
@@ -341,7 +377,7 @@ export function ProfitTrendWidget() {
                   dataKey="positive"
                   baseValue={0}
                   stroke="none"
-                  fill={`url(#${posFillId})`}
+                  fill={'url(#' + posFillId + ')'}
                   connectNulls={false}
                   isAnimationActive={false}
                   dot={false}

@@ -49,6 +49,16 @@ export function widgetDefaultSize(type: WidgetType): { width: number; height: nu
       return { width: 460, height: 440 };
     case 'funding-rates':
       return { width: 420, height: 400 };
+    case 'line-chart':
+      return { width: 720, height: 480 };
+    case 'bar-chart':
+      return { width: 560, height: 400 };
+    case 'stats-card':
+      return { width: 760, height: 480 };
+    case 'pie-chart':
+      return { width: 640, height: 380 };
+    case 'area-chart':
+      return { width: 560, height: 360 };
     default:
       return { width: 400, height: 320 };
   }

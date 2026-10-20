@@ -28,7 +28,7 @@ BINANCE_API_FALLBACK = "https://api.binance.com"
 REQUEST_TIMEOUT_SEC = 8.0
 CACHE_TTL_SEC = 10.0
 KLINES_CACHE_TTL_SEC = 60.0
-KLINES_ALLOWED_INTERVALS = frozenset({"15m", "1h", "4h", "1d"})
+KLINES_ALLOWED_INTERVALS = frozenset({"15m", "1h", "4h", "1d", "1w", "1M"})
 KLINES_MAX_LIMIT = 500
 
 FIELD_LAST_PRICE = "last_price"
@@ -322,6 +322,105 @@ def get_klines(
         with _cache_lock:
             _cache[cache_key] = (time.monotonic() + KLINES_CACHE_TTL_SEC, dict(result))
     return result
+
+
+_COINGECKO_IDS = {
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "SOL": "solana",
+    "BNB": "binancecoin",
+    "XRP": "ripple",
+    "DOGE": "dogecoin",
+    "ADA": "cardano",
+    "AVAX": "avalanche-2",
+    "DOT": "polkadot",
+    "LINK": "chainlink",
+    "LTC": "litecoin",
+    "UNI": "uniswap",
+    "ATOM": "cosmos",
+    "NEAR": "near",
+    "APT": "aptos",
+    "SUI": "sui",
+    "ARB": "arbitrum",
+    "OP": "optimism",
+    "PEPE": "pepe",
+}
+
+MARKET_CAP_CACHE_TTL_SEC = 300.0
+
+
+def split_base_quote(symbol: str) -> tuple[str, str]:
+    raw = (symbol or "").strip().upper()
+    for quote in _QUOTE_SUFFIXES:
+        if raw.endswith(quote) and len(raw) > len(quote):
+            return raw[: -len(quote)], quote
+    return raw, "USDT"
+
+
+def fetch_market_cap_usd(base: str) -> float | None:
+    cg_id = _COINGECKO_IDS.get((base or "").strip().upper())
+    if not cg_id:
+        return None
+    cache_key = f"mc|{cg_id}"
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _cache.get(cache_key)
+        if hit and hit[0] > now:
+            value = hit[1].get("market_cap_usd")
+            return float(value) if value is not None else None
+
+    url = (
+        "https://api.coingecko.com/api/v3/simple/price"
+        f"?ids={urllib.parse.quote(cg_id)}&vs_currencies=usd&include_market_cap=true"
+    )
+    req = urllib.request.Request(
+        url,
+        headers={"Accept": "application/json", "User-Agent": "Cryptelix/1.0"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SEC) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        cap = (payload.get(cg_id) or {}).get("usd_market_cap")
+        value = float(cap) if cap is not None else None
+    except Exception:
+        value = None
+
+    with _cache_lock:
+        _cache[cache_key] = (now + MARKET_CAP_CACHE_TTL_SEC, {"market_cap_usd": value})
+    return value
+
+
+def get_ticker_overview(symbol_raw: object) -> dict[str, Any]:
+    last_err: Exception | None = None
+    ticker: dict[str, Any] | None = None
+    symbol = ""
+    for candidate in spot_symbol_candidates(symbol_raw):
+        try:
+            ticker = fetch_ticker_24h(candidate)
+            symbol = str(ticker.get("symbol") or candidate)
+            break
+        except BinanceMarketError as exc:
+            last_err = exc
+            continue
+    if ticker is None:
+        raise last_err or BinanceMarketError("No ticker for symbol")
+
+    base, quote = split_base_quote(symbol)
+    return {
+        "source": "binance_spot_public",
+        "symbol": symbol,
+        "base": base,
+        "quote": quote,
+        "last_price": ticker.get("last_price"),
+        "price_change": ticker.get("price_change"),
+        "price_change_percent": ticker.get("price_change_percent"),
+        "high_price": ticker.get("high_price"),
+        "low_price": ticker.get("low_price"),
+        "volume": ticker.get("volume"),
+        "quote_volume": ticker.get("quote_volume"),
+        "market_cap_usd": fetch_market_cap_usd(base),
+    }
 
 
 def fetch_avg_price(symbol: str) -> dict[str, Any]:

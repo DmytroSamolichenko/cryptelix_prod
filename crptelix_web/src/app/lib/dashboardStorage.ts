@@ -46,7 +46,7 @@ export function getDefaultCanvases(): StoredCanvas[] {
           type: 'stats-card',
           title: 'Key Metrics',
           position: { x: scalePx(700), y: scalePx(50) },
-          size: scaleSize(450, 320),
+          size: scaleSize(760, 480),
           layer: 0,
         },
         {

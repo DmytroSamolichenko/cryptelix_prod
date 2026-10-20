@@ -6,6 +6,7 @@ import { AuthGate } from './components/auth/AuthGate';
 import { DashboardCanvas } from './components/DashboardCanvas';
 import { Widget, widgetDefaultSize } from './components/DashboardWidget';
 import { TopBar } from './components/TopBar';
+import { PromoTicker } from './components/PromoTicker';
 import { DataBase } from './components/DataBase';
 import { ConstructorBottomMenu } from './components/ConstructorBottomMenu';
 import { FeedbackSurveyHost } from './components/FeedbackSurveyHost';
@@ -59,6 +60,8 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
     drawingsByCanvasId: initialState.drawingsByCanvasId,
     brushColor: initialState.brushColor,
   });
+  const [autoEditWidgetId, setAutoEditWidgetId] = useState<string | null>(null);
+  const clearAutoEditWidget = useCallback(() => setAutoEditWidgetId(null), []);
   const [guidePhase, setGuidePhase] = useState<GuidePhase>('idle');
   const [tourIndex, setTourIndex] = useState(0);
 
@@ -425,6 +428,7 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
           isChatOpen={isChatOpen}
           isWidgetsOpen={isWidgetsOpen}
         />
+        <PromoTicker />
 
         {/* Main Content Area — overflow only on canvas so floating controls' glow isn't clipped */}
         <div className="relative flex min-h-0 flex-1">
@@ -444,6 +448,8 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
                 drawToolMode={drawToolMode}
                 brushColor={brushColor}
                 canvasId={activeCanvasId}
+                autoEditWidgetId={autoEditWidgetId}
+                onAutoEditHandled={clearAutoEditWidget}
                 drawingDataUrl={drawingsByCanvasId[activeCanvasId]}
                 onDrawingChange={(dataUrl) =>
                   setDrawingsByCanvasId((prev) => ({ ...prev, [activeCanvasId]: dataUrl }))
@@ -484,6 +490,7 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
                       data: { text: '', html: '', fontSize: DEFAULT_FONT_SIZE },
                     };
                     handleAddWidget(newTextField);
+                    setAutoEditWidgetId(newTextField.id);
                   }}
                   onAddWidget={(type) => {
                     const widgetTitles: Record<string, string> = {
