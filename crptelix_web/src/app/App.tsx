@@ -7,6 +7,7 @@ import { DashboardCanvas } from './components/DashboardCanvas';
 import { Widget, widgetDefaultSize } from './components/DashboardWidget';
 import { TopBar } from './components/TopBar';
 import { PromoTicker } from './components/PromoTicker';
+import { VenueSuggestionHost } from './components/VenueSuggestionPopup';
 import { DataBase } from './components/DataBase';
 import { ConstructorBottomMenu } from './components/ConstructorBottomMenu';
 import { FeedbackSurveyHost } from './components/FeedbackSurveyHost';
@@ -543,6 +544,8 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
               }}
             />
           )}
+
+          {import.meta.env.DEV && !guideActive && <VenueSuggestionHost />}
         </div>
 
         <AppGuide
