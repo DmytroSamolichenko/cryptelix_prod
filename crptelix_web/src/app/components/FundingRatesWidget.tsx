@@ -163,7 +163,7 @@ function VenueCard({
           {VENUE_LABEL[snap.venue] ?? snap.venue}
         </span>
         {highlight && (
-          <span className="rounded bg-yellow-500/15 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400">
+          <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">
             Lower 24h cost
           </span>
         )}
@@ -342,7 +342,7 @@ export function FundingRatesWidget({
           onClick={() => setCompareOn((v) => !v)}
           className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs transition-colors ${
             compareOn
-              ? 'border-yellow-500/50 bg-yellow-500/10 text-yellow-400'
+              ? 'border-zinc-500 bg-white/10 text-zinc-100'
               : 'border-zinc-700 bg-zinc-900 text-gray-300 hover:border-zinc-500'
           }`}
           title="Compare venues"
@@ -438,7 +438,7 @@ export function FundingRatesWidget({
               Object.entries(compare.errors).map(([v, msg]) => (
                 <div
                   key={v}
-                  className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200"
+                  className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-300"
                 >
                   {VENUE_LABEL[v as VenueId] ?? v}: {msg}
                 </div>

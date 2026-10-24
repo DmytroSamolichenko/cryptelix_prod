@@ -64,6 +64,7 @@ from portfolio_snapshot_service import (
 from binance_market_service import (
     BinanceMarketError,
     get_klines,
+    get_ticker_overview,
     pair_to_spot_symbol,
 )
 from venue_funding_service import (
@@ -393,6 +394,19 @@ async def get_market_klines(
     try:
         pair_to_spot_symbol(symbol)
         return get_klines(symbol, interval=interval, limit=limit)
+    except BinanceMarketError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/market/ticker")
+async def get_market_ticker(
+    symbol: str = Query(..., description="Pair or Binance symbol, e.g. BTC/USDT"),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Public 24h ticker plus optional market cap. Does not use the user's API key."""
+    try:
+        pair_to_spot_symbol(symbol)
+        return get_ticker_overview(symbol)
     except BinanceMarketError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -1242,28 +1256,27 @@ def _trade_float(value: Any) -> float:
         return 0.0
 
 
-@app.get("/api/v1/trades/stats")
-async def get_trades_stats(
-    db: Session = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
-):
-    """
-    Key Metrics / Stats for dashboard: TNP, profit factor, trade counts, max drawdown, etc.
-    """
-    try:
-        connected = connected_exchange_names(db, current_user.id)
-        rows: List[TradeModel] = (
-            db.query(TradeModel)
-            .filter(
-                TradeModel.user_id == current_user.id,
-                visible_trades_sqlalchemy_filter(connected),
-            )
-            .order_by(TradeModel.date.asc())
-            .all()
-        )
-    except Exception as exc:
-        raise _internal_error(exc) from exc
+def _naive_trade_dt(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo is not None else value
+    if isinstance(value, date_type):
+        return datetime.combine(value, time.min)
+    return None
 
+
+def _pct_change(curr: float | None, prev: float | None) -> float | None:
+    if curr is None or prev is None:
+        return None
+    if not (isinstance(curr, (int, float)) and isinstance(prev, (int, float))):
+        return None
+    if abs(prev) < 1e-12:
+        return None
+    return (float(curr) - float(prev)) / abs(float(prev)) * 100.0
+
+
+def _compute_key_metrics(rows: List[TradeModel]) -> Dict[str, Any]:
     total_trades = len(rows)
     sum_pnl = 0.0
     sum_commission = 0.0
@@ -1295,7 +1308,7 @@ async def get_trades_stats(
         profit_factor = None
 
     cumulative = 0.0
-    peak = float("-inf")
+    peak = 0.0
     max_drawdown = 0.0
     for t in rows:
         net = _trade_float(t.pnl) - _trade_float(t.commission)
@@ -1303,7 +1316,12 @@ async def get_trades_stats(
         peak = max(peak, cumulative)
         max_drawdown = max(max_drawdown, peak - cumulative)
 
-    max_drawdown_percent = (max_drawdown / peak * 100.0) if peak > 1e-12 else 0.0
+    if peak > max(max_drawdown * 0.05, 1e-6):
+        max_drawdown_percent = max_drawdown / peak * 100.0
+    elif max_drawdown > 1e-12:
+        max_drawdown_percent = 100.0
+    else:
+        max_drawdown_percent = 0.0
 
     percent_profitable = (
         (winners / total_trades * 100.0) if total_trades > 0 else 0.0
@@ -1331,6 +1349,81 @@ async def get_trades_stats(
         "avg_losing_trade": avg_losing_trade,
         "realized_rr": realized_rr,
     }
+
+
+@app.get("/api/v1/trades/stats")
+async def get_trades_stats(
+    period: str = Query("all"),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """
+    Key Metrics / Stats for dashboard: TNP, profit factor, trade counts, max drawdown, etc.
+    period: 1w | 1m | all
+    """
+    key = (period or "all").strip().lower()
+    if key not in {"1w", "1m", "all"}:
+        key = "all"
+
+    try:
+        connected = connected_exchange_names(db, current_user.id)
+        rows: List[TradeModel] = (
+            db.query(TradeModel)
+            .filter(
+                TradeModel.user_id == current_user.id,
+                visible_trades_sqlalchemy_filter(connected),
+            )
+            .order_by(TradeModel.date.asc())
+            .all()
+        )
+    except Exception as exc:
+        raise _internal_error(exc) from exc
+
+    today = date_type.today()
+    if key == "1w":
+        current_start = today - timedelta(days=6)
+        previous_start = today - timedelta(days=13)
+        previous_end = current_start
+    elif key == "1m":
+        current_start = today - timedelta(days=29)
+        previous_start = today - timedelta(days=59)
+        previous_end = current_start
+    else:
+        current_start = None
+        previous_start = None
+        previous_end = None
+
+    def _day(trade: TradeModel) -> date_type | None:
+        dt = _naive_trade_dt(trade.date)
+        return dt.date() if dt is not None else None
+
+    current_rows = [
+        t
+        for t in rows
+        if current_start is None or ((d := _day(t)) is not None and d >= current_start)
+    ]
+    previous_rows = [
+        t
+        for t in rows
+        if previous_start is not None
+        and previous_end is not None
+        and (d := _day(t)) is not None
+        and previous_start <= d < previous_end
+    ]
+
+    stats = _compute_key_metrics(current_rows)
+    prev = _compute_key_metrics(previous_rows) if current_start is not None else None
+    stats["period"] = key
+    stats["total_net_profit_change_pct"] = (
+        _pct_change(stats["total_net_profit"], prev["total_net_profit"]) if prev else None
+    )
+    stats["avg_trade_change_pct"] = (
+        _pct_change(stats["avg_trade"], prev["avg_trade"]) if prev else None
+    )
+    stats["realized_rr_change_pct"] = (
+        _pct_change(stats["realized_rr"], prev["realized_rr"]) if prev else None
+    )
+    return stats
 
 
 @app.get("/api/v1/trades/ftr-report")

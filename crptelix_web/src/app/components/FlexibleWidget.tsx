@@ -22,16 +22,34 @@ const TEXT_MIN_WIDTH = 80;
 const TEXT_MIN_HEIGHT = 40;
 const WIDGET_MIN_WIDTH = 238;
 const WIDGET_MIN_HEIGHT = 170;
+/** Below this the Volume Mix legend can no longer sit beside the donut. */
+const PIE_MIN_WIDTH = 520;
+const PIE_MIN_HEIGHT = 300;
 const BODY_DRAG_THRESHOLD = 5;
 
 /** Chart widgets need a fixed viewport; others scroll when content exceeds the box. */
+function widgetHasOwnChrome(widget: Widget): boolean {
+  return (
+    widget.type === 'line-chart' ||
+    widget.type === 'bar-chart' ||
+    widget.type === 'pie-chart' ||
+    widget.type === 'area-chart' ||
+    widget.type === 'pnl-calendar' ||
+    widget.type === 'symbol-scorecard' ||
+    widget.type === 'session-heatmap' ||
+    (widget.type === 'stats-card' && !widget.data?.ftrMetricKey)
+  );
+}
+
 function widgetBodyClass(type: Widget['type']): string {
   if (
     type === 'line-chart' ||
     type === 'bar-chart' ||
+    type === 'stats-card' ||
     type === 'area-chart' ||
     type === 'pie-chart' ||
     type === 'pnl-calendar' ||
+    type === 'symbol-scorecard' ||
     type === 'session-heatmap' ||
     type === 'funding-rates' ||
     type === 'position-impact'
@@ -132,11 +150,30 @@ function FlexibleWidgetInner({
 
   const isTextField = widget.type === 'text-field';
   const position = widget.position || { x: 0, y: 0 };
-  const size = widget.size || { width: 340, height: 272 };
   const displayX = canvasOrigin.x + position.x;
   const displayY = canvasOrigin.y + position.y;
-  const minWidth = isTextField ? TEXT_MIN_WIDTH : WIDGET_MIN_WIDTH;
-  const minHeight = isTextField ? TEXT_MIN_HEIGHT : WIDGET_MIN_HEIGHT;
+  const minWidth = isTextField
+    ? TEXT_MIN_WIDTH
+    : widget.type === 'pie-chart'
+      ? PIE_MIN_WIDTH
+      : widget.type === 'pnl-calendar'
+        ? 340
+        : WIDGET_MIN_WIDTH;
+  const minHeight = isTextField
+    ? TEXT_MIN_HEIGHT
+    : widget.type === 'pie-chart'
+      ? PIE_MIN_HEIGHT
+      : widget.type === 'pnl-calendar'
+        ? 280
+        : WIDGET_MIN_HEIGHT;
+  const rawSize = widget.size || { width: 340, height: 272 };
+  const size =
+    widget.type === 'pie-chart'
+      ? {
+          width: Math.max(rawSize.width, minWidth),
+          height: Math.max(rawSize.height, minHeight),
+        }
+      : rawSize;
 
   useEffect(() => {
     if (!isInteracting) return;
@@ -426,14 +463,26 @@ function FlexibleWidgetInner({
       ) : (
         <>
           <Card
-            className={`group h-full overflow-hidden border bg-zinc-900 ${
-              isSelected
+            className={
+              'group relative h-full overflow-hidden border ' +
+              (widgetHasOwnChrome(widget)
+                ? 'gap-0 rounded-2xl bg-zinc-950 '
+                : 'bg-zinc-900 ') +
+              (isSelected
                 ? 'border-zinc-600/80'
                 : isPreviewSelected
                   ? 'border-yellow-400/80 shadow-[0_0_0_1px_rgba(250,204,21,0.55)]'
-                  : 'border-zinc-800 hover:border-zinc-700'
-            }`}
-            onMouseDown={handleSelectOnly}
+                  : widgetHasOwnChrome(widget)
+                    ? 'border-yellow-900/40 hover:border-yellow-800/50'
+                    : 'border-zinc-800 hover:border-zinc-700')
+            }
+            onMouseDown={(e) => {
+              if ((e.target as HTMLElement).closest('.widget-drag-handle')) {
+                handleMouseDown(e);
+                return;
+              }
+              handleSelectOnly(e);
+            }}
             onMouseUp={() => {
               suppressTextSelectRef.current = false;
             }}
@@ -451,22 +500,25 @@ function FlexibleWidgetInner({
             </button>
 
             <div
-              className={`flex h-full min-h-0 flex-col overflow-hidden bg-zinc-900 p-3 ${isInteracting ? 'pointer-events-none' : ''}`}
+              className={
+                'flex h-full min-h-0 flex-col overflow-hidden ' +
+                (widgetHasOwnChrome(widget)
+                  ? 'bg-zinc-950 p-0 '
+                  : 'bg-zinc-900 p-3 ') +
+                (isInteracting ? 'pointer-events-none' : '')
+              }
             >
-              <h3
-                className="mb-2 shrink-0 cursor-move select-none truncate text-sm font-semibold text-white"
-                onMouseDown={handleMouseDown}
-                title="Drag to move"
-              >
-                <span className="inline-flex max-w-full items-center gap-1.5">
-                  <span className="truncate">{displayWidgetTitle(widget)}</span>
-                  {widget.type === 'line-chart' && (
-                    <span className="shrink-0 rounded border border-yellow-500/40 bg-yellow-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-yellow-400">
-                      Binance
-                    </span>
-                  )}
-                </span>
-              </h3>
+              {!widgetHasOwnChrome(widget) && (
+                <h3
+                  className="mb-2 shrink-0 cursor-move select-none truncate text-[17px] font-medium leading-tight text-yellow-500"
+                  onMouseDown={handleMouseDown}
+                  title="Drag to move"
+                >
+                  <span className="inline-flex max-w-full items-center gap-1.5">
+                    <span className="truncate">{displayWidgetTitle(widget)}</span>
+                  </span>
+                </h3>
+              )}
               <div className={widgetBodyClass(widget.type)}>
                 {children}
               </div>

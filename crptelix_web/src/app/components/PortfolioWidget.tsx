@@ -317,8 +317,8 @@ export function PortfolioWidget() {
                   ))}
                   <div className="mt-1.5 border-t border-zinc-700/50 pt-1.5">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-medium text-yellow-400">Total</span>
-                      <span className="text-[10px] font-medium tabular-nums text-yellow-400">
+                      <span className="text-[10px] font-medium text-zinc-100">Total</span>
+                      <span className="text-[10px] font-medium tabular-nums text-zinc-100">
                         {formatUsd(total)}
                       </span>
                     </div>
@@ -339,7 +339,7 @@ export function PortfolioWidget() {
                     onClick={() => setPeriod(key)}
                     className={`rounded px-1.5 py-0.5 text-[10px] transition-all ${
                       period === key
-                        ? 'bg-yellow-500/20 font-medium text-yellow-400'
+                        ? 'bg-white/10 font-medium text-zinc-100'
                         : 'text-gray-500 hover:text-gray-300'
                     }`}
                   >

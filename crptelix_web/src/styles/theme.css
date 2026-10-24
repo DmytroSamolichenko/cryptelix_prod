@@ -242,6 +242,31 @@
   background: #09090b;
 }
 
+/* Promo ticker under the top bar: the track holds two identical halves, so -50% loops seamlessly */
+@keyframes promo-ticker-scroll {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.promo-ticker-track {
+  animation: promo-ticker-scroll 60s linear infinite;
+  will-change: transform;
+}
+
+.promo-ticker:hover .promo-ticker-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .promo-ticker-track {
+    animation: none;
+  }
+}
+
 /* Canvas rich-text widget */
 .canvas-text-display ul,
 .canvas-text-editable ul {

@@ -1,3 +1,5 @@
+import { heatFill } from './widgetColors';
+
 export type TradeRow = Record<string, unknown>;
 
 export function parseNum(raw: unknown): number {
@@ -25,8 +27,5 @@ export function formatUsd(n: number): string {
 }
 
 export function heatColor(net: number, maxAbs: number): string {
-  if (maxAbs <= 0 || net === 0) return 'rgba(63, 63, 70, 0.45)';
-  const t = Math.min(1, Math.abs(net) / maxAbs);
-  const alpha = 0.18 + t * 0.72;
-  return net > 0 ? `rgba(34, 197, 94, ${alpha})` : `rgba(239, 68, 68, ${alpha})`;
+  return heatFill(net, maxAbs) ?? 'rgba(255, 255, 255, 0.03)';
 }
