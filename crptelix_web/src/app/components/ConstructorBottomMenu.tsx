@@ -1,4 +1,4 @@
-import { LayoutGrid, Paintbrush, Type, Plus, LineChart, BarChart3, AreaChart, PieChart, Zap, Table, Wallet, Calendar, ListOrdered, Clock, Percent, X, Pencil } from 'lucide-react';
+import { LayoutGrid, Paintbrush, Type, Plus, LineChart, BarChart3, AreaChart, PieChart, Zap, Table, Wallet, Calendar, ListOrdered, Clock, Percent, Calculator, X, Pencil } from 'lucide-react';
 import { WidgetType } from './DashboardWidget';
 import { motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
@@ -136,6 +136,13 @@ export function ConstructorBottomMenu({
       label: 'Funding Rates',
       description:
         'Live perp funding from Binance or Phoenix, with optional venue comparison and 24h holding-cost estimate.',
+    },
+    {
+      type: 'position-impact' as WidgetType,
+      icon: Calculator,
+      label: 'Position Impact',
+      description:
+        'L2 slippage and book-impact estimate for margin × leverage on Phoenix (snapshot calculator).',
     },
   ];
 

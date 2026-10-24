@@ -72,6 +72,10 @@ from venue_funding_service import (
     compare_venue_funding,
     get_venue_funding,
 )
+from venue_price_impact_service import (
+    VenuePriceImpactError,
+    calculate_position_impact,
+)
 from constructor_board_service import (
     ConstructorBoardError,
     get_board as get_constructor_board,
@@ -453,6 +457,38 @@ async def compare_venue_funding_endpoint(
             position_side=side,
         )
     except VenueFundingError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/venue/price-impact")
+async def get_venue_price_impact_endpoint(
+    venue: str = Query("phoenix", description="phoenix (binance later)"),
+    symbol: str = Query("SOL", description="Base or pair, e.g. SOL or SOLUSDT"),
+    side: str = Query("long", description="long | short"),
+    margin: float = Query(1_000, gt=0, le=10_000_000),
+    leverage: float = Query(10, gt=0, le=200),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """
+    Snapshot L2 walk: slippage vs best touch + simulated book (new best) impact.
+    notional = margin × leverage. Public venue APIs only; no user exchange keys.
+    """
+    side_norm = (side or "long").strip().lower()
+    if side_norm not in ("long", "short"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="side must be long or short",
+        )
+    try:
+        return await run_in_threadpool(
+            calculate_position_impact,
+            venue=venue,
+            symbol=symbol,
+            side=side_norm,
+            margin=margin,
+            leverage=leverage,
+        )
+    except VenuePriceImpactError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 

@@ -32,7 +32,8 @@ export type WidgetType =
   | 'pnl-calendar'
   | 'symbol-scorecard'
   | 'session-heatmap'
-  | 'funding-rates';
+  | 'funding-rates'
+  | 'position-impact';
 
 export function widgetDefaultSize(type: WidgetType): { width: number; height: number } {
   switch (type) {
@@ -49,6 +50,8 @@ export function widgetDefaultSize(type: WidgetType): { width: number; height: nu
       return { width: 460, height: 440 };
     case 'funding-rates':
       return { width: 420, height: 400 };
+    case 'position-impact':
+      return { width: 440, height: 460 };
     default:
       return { width: 400, height: 320 };
   }

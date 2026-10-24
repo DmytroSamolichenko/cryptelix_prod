@@ -498,6 +498,7 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
                       'symbol-scorecard': 'Symbol Scorecard',
                       'session-heatmap': 'Session Heatmap',
                       'funding-rates': 'Funding Rates',
+                      'position-impact': 'Position Impact',
                     };
                     const def = widgetDefaultSize(type);
                     const newWidget = {

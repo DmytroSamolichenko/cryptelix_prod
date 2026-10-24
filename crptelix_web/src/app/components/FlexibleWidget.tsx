@@ -33,7 +33,8 @@ function widgetBodyClass(type: Widget['type']): string {
     type === 'pie-chart' ||
     type === 'pnl-calendar' ||
     type === 'session-heatmap' ||
-    type === 'funding-rates'
+    type === 'funding-rates' ||
+    type === 'position-impact'
   ) {
     return 'min-h-0 min-w-0 flex-1 overflow-hidden';
   }
@@ -48,6 +49,7 @@ function displayWidgetTitle(widget: Widget): string {
   if (widget.type === 'symbol-scorecard') return 'Symbol Scorecard';
   if (widget.type === 'session-heatmap') return 'Session Heatmap';
   if (widget.type === 'funding-rates') return 'Funding Rates';
+  if (widget.type === 'position-impact') return 'Position Impact';
   return widget.title;
 }
 

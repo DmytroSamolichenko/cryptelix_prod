@@ -11,6 +11,7 @@ import { PnlCalendarWidget } from './PnlCalendarWidget';
 import { SymbolScorecardWidget } from './SymbolScorecardWidget';
 import { SessionHeatmapWidget } from './SessionHeatmapWidget';
 import { FundingRatesWidget } from './FundingRatesWidget';
+import { PositionImpactWidget } from './PositionImpactWidget';
 
 interface CanvasWidgetBodyProps {
   widget: Widget;
@@ -74,6 +75,14 @@ export const CanvasWidgetBody = memo(function CanvasWidgetBody({
     case 'funding-rates':
       return (
         <FundingRatesWidget
+          initialData={widget.data}
+          onPersistPrefs={(prefs) => onUpdateWidgetData?.(widget.id, prefs)}
+        />
+      );
+
+    case 'position-impact':
+      return (
+        <PositionImpactWidget
           initialData={widget.data}
           onPersistPrefs={(prefs) => onUpdateWidgetData?.(widget.id, prefs)}
         />

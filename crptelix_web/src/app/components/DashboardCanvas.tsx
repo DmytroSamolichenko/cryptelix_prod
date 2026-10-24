@@ -1001,6 +1001,7 @@ export function DashboardCanvas({
       'symbol-scorecard': 'Symbol Scorecard',
       'session-heatmap': 'Session Heatmap',
       'funding-rates': 'Funding Rates',
+      'position-impact': 'Position Impact',
     };
 
     const randomX = Math.floor(Math.random() * 400) + 50;

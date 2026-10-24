@@ -105,9 +105,10 @@ def _cache_get(key: str) -> dict[str, Any] | None:
     return None
 
 
-def _cache_set(key: str, payload: dict[str, Any]) -> None:
+def _cache_set(key: str, payload: dict[str, Any], *, ttl_sec: float | None = None) -> None:
+    ttl = CACHE_TTL_SEC if ttl_sec is None else float(ttl_sec)
     with _cache_lock:
-        _cache[key] = (time.monotonic() + CACHE_TTL_SEC, dict(payload))
+        _cache[key] = (time.monotonic() + ttl, dict(payload))
 
 
 def _safe_float(value: object) -> float | None:
@@ -137,6 +138,82 @@ def fetch_mark_price(symbol: str) -> dict[str, Any]:
 def fetch_funding_rates(symbol: str) -> dict[str, Any]:
     """Raw history from GET /v1/funding/{symbol}/rates."""
     return _http_get_json(f"/v1/funding/{symbol}/rates")
+
+
+ORDERBOOK_CACHE_TTL_SEC = 3.0
+
+
+def _parse_book_levels(raw: object) -> list[tuple[float, float]]:
+    """Parse [[price, size], ...] into positive (price, qty) pairs."""
+    if not isinstance(raw, list):
+        return []
+    out: list[tuple[float, float]] = []
+    for row in raw:
+        price: float | None = None
+        qty: float | None = None
+        if isinstance(row, (list, tuple)) and len(row) >= 2:
+            price = _safe_float(row[0])
+            qty = _safe_float(row[1])
+        elif isinstance(row, dict):
+            price = _safe_float(row.get("price", row.get("px")))
+            qty_raw = row.get("quantity")
+            if qty_raw is None:
+                qty_raw = row.get("qty")
+            if qty_raw is None:
+                qty_raw = row.get("size")
+            qty = _safe_float(qty_raw)
+        if price is None or qty is None or price <= 0 or qty <= 0:
+            continue
+        out.append((price, qty))
+    return out
+
+
+def fetch_orderbook(symbol: str) -> dict[str, Any]:
+    """Raw L2 snapshot from GET /v1/view/orderbook/{symbol}."""
+    return _http_get_json(f"/v1/view/orderbook/{symbol}")
+
+
+def get_orderbook_snapshot(symbol_raw: object, *, use_cache: bool = True) -> dict[str, Any]:
+    """
+    Normalized L2 book for impact / slippage walks.
+
+    Bids sorted price desc, asks sorted price asc. Sizes are base asset.
+    Quote notional at a level ≈ price * size.
+    """
+    symbol = normalize_phoenix_symbol(symbol_raw)
+    cache_key = f"orderbook|{symbol}"
+    if use_cache:
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+    raw = fetch_orderbook(symbol)
+    bids = _parse_book_levels(raw.get("bids"))
+    asks = _parse_book_levels(raw.get("asks"))
+    bids.sort(key=lambda x: x[0], reverse=True)
+    asks.sort(key=lambda x: x[0])
+
+    mid = _safe_float(raw.get("mid"))
+    if mid is None and bids and asks:
+        mid = (bids[0][0] + asks[0][0]) / 2.0
+
+    result = {
+        "venue": "phoenix",
+        "symbol": symbol,
+        "venue_symbol": symbol,
+        "bids": [{"price": p, "quantity": q} for p, q in bids],
+        "asks": [{"price": p, "quantity": q} for p, q in asks],
+        "mid": mid,
+        "slot": raw.get("slot"),
+        "bid_levels": len(bids),
+        "ask_levels": len(asks),
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "cached": False,
+        "source": "phoenix_perp_public",
+    }
+    if use_cache:
+        _cache_set(cache_key, result, ttl_sec=ORDERBOOK_CACHE_TTL_SEC)
+    return result
 
 
 def get_funding_snapshot(symbol_raw: object, *, use_cache: bool = True) -> dict[str, Any]:
