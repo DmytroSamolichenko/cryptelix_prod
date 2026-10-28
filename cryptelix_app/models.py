@@ -565,6 +565,45 @@ class ConstructorBoard(Base):
     )
 
 
+class AuthSession(Base):
+    """Refresh-token session (4.7).
+
+    One row per issued refresh token. We store only the SHA-256 hash of the
+    token (never the plaintext), so a DB leak does not yield usable tokens.
+    Rotation creates a new row linked via `rotated_from` and revokes the old
+    one; presenting an already-revoked token is treated as reuse and triggers
+    revocation of all of the user's sessions. DDL applied manually.
+    """
+
+    __tablename__ = "auth_sessions"
+    __table_args__ = {"schema": "public"}
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    refresh_token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    issued_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    rotated_from = Column(
+        UUID(as_uuid=True),
+        ForeignKey("public.auth_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    user_agent = Column(String(400), nullable=True)
+    ip = Column(String(64), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 if __name__ == "__main__":
 
     Base.metadata.create_all(bind=engine)

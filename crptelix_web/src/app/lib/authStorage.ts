@@ -1,4 +1,8 @@
-const STORAGE_KEY = 'cryptelix-auth';
+/**
+ * 4.7: the access token lives ONLY in memory (never localStorage) to remove the
+ * XSS token-exfiltration surface. Session continuity across reloads comes from
+ * the httpOnly refresh cookie via /auth/refresh (see apiClient bootstrap).
+ */
 
 export interface AuthUser {
   id: number;
@@ -12,13 +16,12 @@ export type MockUser = AuthUser;
 
 export interface AuthSession {
   accessToken: string;
+  csrfToken?: string;
   user: AuthUser;
 }
 
-interface StoredAuth {
-  accessToken: string;
-  user: AuthUser;
-}
+let accessToken: string | null = null;
+let csrfToken: string | null = null;
 
 export function isValidEmail(value: string): boolean {
   const trimmed = value.trim();
@@ -27,73 +30,23 @@ export function isValidEmail(value: string): boolean {
 }
 
 export function getAccessToken(): string | null {
-  const session = loadAuth();
-  return session?.accessToken ?? null;
+  return accessToken;
 }
 
-export function loadAuth(): AuthSession | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<StoredAuth>;
-    if (!parsed?.accessToken || !parsed.user?.email || typeof parsed.user.id !== 'number') {
-      return null;
-    }
-    return {
-      accessToken: parsed.accessToken,
-      user: {
-        id: parsed.user.id,
-        email: parsed.user.email,
-        username: parsed.user.username ?? null,
-        signedInAt:
-          typeof parsed.user.signedInAt === 'string'
-            ? parsed.user.signedInAt
-            : new Date().toISOString(),
-      },
-    };
-  } catch {
-    return null;
-  }
+export function getCsrfToken(): string | null {
+  return csrfToken;
 }
 
-export function saveAuth(session: AuthSession): AuthUser {
-  const payload: StoredAuth = {
-    accessToken: session.accessToken,
-    user: {
-      ...session.user,
-      email: session.user.email.trim().toLowerCase(),
-      signedInAt: session.user.signedInAt || new Date().toISOString(),
-    },
-  };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  return payload.user;
+/** Store the in-memory session tokens returned by login/activate/refresh. */
+export function setSessionTokens(access: string, csrf?: string | null): void {
+  accessToken = access || null;
+  if (csrf !== undefined) csrfToken = csrf ?? null;
 }
 
+/** Clear all in-memory auth state. */
 export function clearAuth(): void {
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem('cryptelix-mock-auth');
-}
-
-/** @deprecated Use loadAuth */
-export function loadMockUser(): AuthUser | null {
-  return loadAuth()?.user ?? null;
-}
-
-/** @deprecated Use saveAuth */
-export function saveMockUser(email: string): AuthUser {
-  return saveAuth({
-    accessToken: '',
-    user: {
-      id: 0,
-      email: email.trim().toLowerCase(),
-      signedInAt: new Date().toISOString(),
-    },
-  });
-}
-
-/** @deprecated Use clearAuth */
-export function clearMockUser(): void {
-  clearAuth();
+  accessToken = null;
+  csrfToken = null;
 }
 
 export function displayNameFromEmail(email: string): string {

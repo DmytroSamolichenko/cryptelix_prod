@@ -20,7 +20,7 @@ import io
 import logging
 
 import pandas as pd
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from starlette.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -40,10 +40,21 @@ from trade_visibility import (
 from auth import (
     activate_user,
     check_email_status,
+    create_access_token,
     get_current_user,
     login_user,
-    logout_user,
     user_to_public,
+)
+from sessions import (
+    REFRESH_COOKIE_NAME,
+    clear_csrf_cookie,
+    clear_refresh_cookie,
+    create_session,
+    issue_csrf,
+    revoke_session,
+    rotate_session,
+    set_refresh_cookie,
+    validate_csrf,
 )
 from database import SessionLocal, get_db
 from binance_connect_service import run_binance_connect_pipeline
@@ -262,7 +273,7 @@ app.add_middleware(
     allow_origin_regex=_CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
     expose_headers=["Content-Disposition"],
 )
 
@@ -275,22 +286,78 @@ def post_auth_check_email(
     return check_email_status(db, body.email)
 
 
+def _issue_session(
+    response: Response, request: Request, db: Session, user: UserModel
+) -> dict[str, Any]:
+    """4.7: create a refresh session, set cookies, and build the access body."""
+    raw = create_session(
+        db,
+        user,
+        user_agent=request.headers.get("user-agent"),
+        ip=_client_ip(request),
+    )
+    set_refresh_cookie(response, raw)
+    csrf = issue_csrf(response)
+    return {
+        "access_token": create_access_token(user),
+        "token_type": "bearer",
+        "user": user_to_public(user),
+        "csrf_token": csrf,
+    }
+
+
 @app.post("/api/v1/auth/activate", response_model=AuthTokenResponse)
 @limiter.limit("10/minute")
 def post_auth_activate(
-    request: Request, body: AuthActivateRequest, db: Session = Depends(get_db)
+    request: Request,
+    body: AuthActivateRequest,
+    response: Response,
+    db: Session = Depends(get_db),
 ):
     _require_turnstile(request, body.turnstile_token)
-    return activate_user(db, body.email, body.password, body.invite_code)
+    user = activate_user(db, body.email, body.password, body.invite_code)
+    return _issue_session(response, request, db, user)
 
 
 @app.post("/api/v1/auth/login", response_model=AuthTokenResponse)
 @limiter.limit("10/minute")
 def post_auth_login(
-    request: Request, body: AuthLoginRequest, db: Session = Depends(get_db)
+    request: Request,
+    body: AuthLoginRequest,
+    response: Response,
+    db: Session = Depends(get_db),
 ):
     _require_turnstile(request, body.turnstile_token)
-    return login_user(db, body.email, body.password)
+    user = login_user(db, body.email, body.password)
+    return _issue_session(response, request, db, user)
+
+
+@app.post("/api/v1/auth/refresh", response_model=AuthTokenResponse)
+@limiter.limit("60/minute")
+def post_auth_refresh(
+    request: Request, response: Response, db: Session = Depends(get_db)
+):
+    """4.7: rotate the refresh cookie and mint a fresh access token."""
+    validate_csrf(request)
+    raw = request.cookies.get(REFRESH_COOKIE_NAME)
+    if not raw:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+    user, new_raw = rotate_session(
+        db,
+        raw,
+        user_agent=request.headers.get("user-agent"),
+        ip=_client_ip(request),
+    )
+    set_refresh_cookie(response, new_raw)
+    csrf = issue_csrf(response)
+    return {
+        "access_token": create_access_token(user),
+        "token_type": "bearer",
+        "user": user_to_public(user),
+        "csrf_token": csrf,
+    }
 
 
 @app.get("/api/v1/auth/me", response_model=UserPublic)
@@ -340,11 +407,20 @@ def put_constructor_board_endpoint(
 
 @app.post("/api/v1/auth/logout")
 def post_auth_logout(
-    current_user: UserModel = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    request: Request, response: Response, db: Session = Depends(get_db)
 ):
-    """Server-side logout: revoke all sessions for the current user (H1)."""
-    return logout_user(db, current_user)
+    """4.7: revoke the current refresh session and clear the auth cookies.
+
+    Cookie-authenticated (no Authorization needed) so logout still works after
+    the short access token has expired. CSRF-protected via double-submit.
+    """
+    validate_csrf(request)
+    raw = request.cookies.get(REFRESH_COOKIE_NAME)
+    if raw:
+        revoke_session(db, raw)
+    clear_refresh_cookie(response)
+    clear_csrf_cookie(response)
+    return {"status": "ok"}
 
 
 def _summary_to_dict(summary) -> Dict[str, Any]:

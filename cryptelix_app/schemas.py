@@ -120,6 +120,9 @@ class AuthTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserPublic
+    # 4.7: double-submit CSRF token; the frontend echoes it as X-CSRF-Token on
+    # cookie-authenticated endpoints (refresh/logout).
+    csrf_token: str | None = None
 
 
 class CheckEmailResponse(BaseModel):

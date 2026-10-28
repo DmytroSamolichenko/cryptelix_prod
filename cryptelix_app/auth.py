@@ -16,8 +16,16 @@ from models import User
 from password_utils import hash_password, validate_password_strength, verify_password
 
 JWT_ALGORITHM = "HS256"
-# H1: shorter default lifetime reduces the window of a stolen token.
-JWT_EXPIRE_DAYS = int(os.getenv("JWT_EXPIRE_DAYS", "7"))
+# 4.7: access token is short-lived; the long-lived refresh cookie keeps the
+# session alive via /auth/refresh. Required via ACCESS_TOKEN_MINUTES env.
+def _access_token_minutes() -> int:
+    raw = (os.getenv("ACCESS_TOKEN_MINUTES") or "").strip()
+    if not raw:
+        raise RuntimeError("ACCESS_TOKEN_MINUTES is not set in the environment.")
+    return int(raw)
+
+
+ACCESS_TOKEN_MINUTES = _access_token_minutes()
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -59,7 +67,7 @@ def create_access_token(user: User) -> str:
         "email": user.email,
         "ver": int(user.token_version or 0),
         "iat": now,
-        "exp": now + timedelta(days=JWT_EXPIRE_DAYS),
+        "exp": now + timedelta(minutes=ACCESS_TOKEN_MINUTES),
     }
     return jwt.encode(payload, _jwt_secret(), algorithm=JWT_ALGORITHM)
 
@@ -91,14 +99,6 @@ def user_to_public(user: User) -> dict[str, Any]:
     }
 
 
-def build_token_response(user: User) -> dict[str, Any]:
-    return {
-        "access_token": create_access_token(user),
-        "token_type": "bearer",
-        "user": user_to_public(user),
-    }
-
-
 def check_email_status(db: Session, email: str) -> dict[str, Any]:
     user = get_user_by_email(db, email)
     if user is None:
@@ -112,7 +112,7 @@ def check_email_status(db: Session, email: str) -> dict[str, Any]:
 
 def activate_user(
     db: Session, email: str, password: str, invite_code: str
-) -> dict[str, Any]:
+) -> User:
     _verify_invite_code(invite_code)
 
     try:
@@ -139,10 +139,10 @@ def activate_user(
     db.add(user)
     db.commit()
     db.refresh(user)
-    return build_token_response(user)
+    return user
 
 
-def login_user(db: Session, email: str, password: str) -> dict[str, Any]:
+def login_user(db: Session, email: str, password: str) -> User:
     user = get_user_by_email(db, email)
     if user is None or user.password_hash is None:
         raise HTTPException(
@@ -154,19 +154,7 @@ def login_user(db: Session, email: str, password: str) -> dict[str, Any]:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
         )
-    return build_token_response(user)
-
-
-def logout_user(db: Session, user: User) -> dict[str, Any]:
-    """H1: revoke all of the user's active sessions by bumping token_version.
-
-    Only flips an integer counter — no user data is modified or deleted.
-    Any token issued before this point is rejected on the next request.
-    """
-    user.token_version = int(user.token_version or 0) + 1
-    db.add(user)
-    db.commit()
-    return {"status": "ok"}
+    return user
 
 
 def get_current_user(

@@ -16,6 +16,7 @@ interface LoginScreenProps {
 interface TokenResponse {
   access_token: string;
   token_type: string;
+  csrf_token?: string | null;
   user: { id: number; email: string; username?: string | null };
 }
 
@@ -181,6 +182,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
       const data = (await res.json()) as TokenResponse;
       onSuccess({
         accessToken: data.access_token,
+        csrfToken: data.csrf_token ?? undefined,
         user: {
           id: data.user.id,
           email: data.user.email,

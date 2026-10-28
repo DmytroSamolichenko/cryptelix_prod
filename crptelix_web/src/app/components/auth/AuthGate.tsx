@@ -2,12 +2,11 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { LoginScreen } from './LoginScreen';
 import {
   clearAuth,
-  loadAuth,
-  saveAuth,
+  setSessionTokens,
   type AuthSession,
   type AuthUser,
 } from '../../lib/authStorage';
-import { apiFetch } from '../../lib/apiClient';
+import { apiFetch, apiLogout, refreshSession } from '../../lib/apiClient';
 import { identifyAmplitudeUser, resetAmplitudeUser } from '../../lib/amplitude';
 
 interface AuthGateProps {
@@ -15,42 +14,36 @@ interface AuthGateProps {
 }
 
 export function AuthGate({ children }: AuthGateProps) {
-  const [session, setSession] = useState<AuthSession | null>(() => loadAuth());
-  const [bootstrapping, setBootstrapping] = useState(() => loadAuth() !== null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [bootstrapping, setBootstrapping] = useState(true);
 
+  // On load the access token is gone (memory-only). Restore the session from
+  // the httpOnly refresh cookie, then fetch the profile.
   useEffect(() => {
-    const existing = loadAuth();
-    if (!existing?.accessToken) {
-      setBootstrapping(false);
-      return;
-    }
-
     let cancelled = false;
     (async () => {
       try {
+        const restored = await refreshSession();
+        if (!restored) return;
         const res = await apiFetch('/api/v1/auth/me');
         if (!res.ok) {
           clearAuth();
-          if (!cancelled) setSession(null);
           return;
         }
-        const me = (await res.json()) as { id: number; email: string; username?: string | null };
+        const me = (await res.json()) as {
+          id: number;
+          email: string;
+          username?: string | null;
+        };
         if (cancelled) return;
-        const next = saveAuth({
-          accessToken: existing.accessToken,
-          user: {
-            id: me.id,
-            email: me.email,
-            username: me.username ?? null,
-            signedInAt: existing.user.signedInAt,
-          },
+        setUser({
+          id: me.id,
+          email: me.email,
+          username: me.username ?? null,
+          signedInAt: new Date().toISOString(),
         });
-        setSession({ accessToken: existing.accessToken, user: next });
       } catch {
-        if (!cancelled) {
-          clearAuth();
-          setSession(null);
-        }
+        if (!cancelled) clearAuth();
       } finally {
         if (!cancelled) setBootstrapping(false);
       }
@@ -62,17 +55,16 @@ export function AuthGate({ children }: AuthGateProps) {
   }, []);
 
   useEffect(() => {
-    if (!session?.user?.id) return;
-    identifyAmplitudeUser(session.user);
-  }, [session?.user]);
+    if (!user?.id) return;
+    identifyAmplitudeUser(user);
+  }, [user]);
 
   const logout = () => {
-    // Best-effort server-side session revocation (bumps token_version).
-    // Token is read by apiFetch before we clear it locally below.
-    void apiFetch('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
+    // Cookie-authenticated + CSRF-protected server-side revocation.
+    void apiLogout();
     resetAmplitudeUser();
     clearAuth();
-    setSession(null);
+    setUser(null);
   };
 
   if (bootstrapping) {
@@ -83,16 +75,16 @@ export function AuthGate({ children }: AuthGateProps) {
     );
   }
 
-  if (!session) {
+  if (!user) {
     return (
       <LoginScreen
-        onSuccess={(nextSession) => {
-          const user = saveAuth(nextSession);
-          setSession({ accessToken: nextSession.accessToken, user });
+        onSuccess={(session: AuthSession) => {
+          setSessionTokens(session.accessToken, session.csrfToken);
+          setUser(session.user);
         }}
       />
     );
   }
 
-  return <>{children(session.user, logout)}</>;
+  return <>{children(user, logout)}</>;
 }
