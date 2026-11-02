@@ -23,6 +23,7 @@ from nacl.signing import VerifyKey
 from sqlalchemy.orm import Session
 
 from models import User, WalletIdentity
+from security import blind_index, encrypt_data
 
 CHAIN_EVM = "eip155"
 CHAIN_SOLANA = "solana"
@@ -278,39 +279,79 @@ def verify_and_get_user(
     else:
         stored_address = _verify_solana(message, signature, address)
 
-    row = (
-        db.query(WalletIdentity)
-        .filter(
-            WalletIdentity.chain == chain_n,
-            WalletIdentity.address == stored_address,
-        )
-        .one_or_none()
-    )
+    row = _find_wallet(db, chain_n, stored_address)
     if row is not None:
         user = db.get(User, row.user_id)
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session"
             )
+        _seal_wallet_row(row, chain_n, stored_address)
+        _strip_address_from_username(user, chain_n, stored_address)
+        db.commit()
         return user
 
-    # Local/prod `users.username` may still be NOT NULL; keep a stable placeholder.
-    placeholder = f"wallet_{chain_n}_{stored_address[:8]}".replace("0x", "")[:50]
+    # Local/prod `users.username` may still be NOT NULL. Do not embed the address.
     user = User(
         email=None,
-        username=placeholder,
+        username=f"wallet_{chain_n}_{secrets.token_hex(4)}"[:50],
         password_hash=None,
         token_version=0,
     )
     db.add(user)
     db.flush()
-    db.add(
-        WalletIdentity(
-            user_id=user.id,
-            chain=chain_n,
-            address=stored_address,
-        )
-    )
+    db.add(_sealed_wallet(user.id, chain_n, stored_address))
     db.commit()
     db.refresh(user)
     return user
+
+
+def _wallet_index(chain: str, address: str) -> str:
+    return blind_index(f"{chain}:{address}")
+
+
+def _sealed_wallet(user_id: int, chain: str, address: str) -> WalletIdentity:
+    return WalletIdentity(
+        user_id=user_id,
+        chain=chain,
+        address=encrypt_data(address),
+        address_hash=_wallet_index(chain, address),
+    )
+
+
+def _seal_wallet_row(row: WalletIdentity, chain: str, address: str) -> None:
+    """Rewrite a legacy plaintext address in place. New rows are already sealed."""
+    digest = _wallet_index(chain, address)
+    if row.address_hash == digest and row.address != address:
+        return
+    row.address = encrypt_data(address)
+    row.address_hash = digest
+
+
+def _strip_address_from_username(user: User, chain: str, address: str) -> None:
+    leaked = f"wallet_{chain}_{address[:8]}".replace("0x", "")[:50]
+    if user.username == leaked:
+        user.username = f"wallet_{chain}_{secrets.token_hex(4)}"[:50]
+
+
+def _find_wallet(db: Session, chain: str, address: str) -> WalletIdentity | None:
+    digest = _wallet_index(chain, address)
+    row = (
+        db.query(WalletIdentity)
+        .filter(
+            WalletIdentity.chain == chain,
+            WalletIdentity.address_hash == digest,
+        )
+        .one_or_none()
+    )
+    if row is not None:
+        return row
+    # Rows created before encryption stored the plaintext address.
+    return (
+        db.query(WalletIdentity)
+        .filter(
+            WalletIdentity.chain == chain,
+            WalletIdentity.address == address,
+        )
+        .one_or_none()
+    )

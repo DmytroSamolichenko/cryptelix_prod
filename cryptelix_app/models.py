@@ -608,8 +608,9 @@ class AuthSession(Base):
 class WalletIdentity(Base):
     """Linked wallet for SIWE / Sign-in-with-Solana (beta wallet auth).
 
-    UNIQUE (chain, address): one EVM or Solana address maps to one user.
-    Address storage: eip155 = lower(0x…); solana = canonical base58 (do not lower).
+    `address` is Fernet ciphertext (MASTER_KEY). Login matches `address_hash`,
+    an HMAC of chain + normalized address, so the plaintext is not needed for
+    lookup and is not recoverable from a database copy alone.
     DDL applied manually (see sql/2026_11_wallet_identities.sql).
     """
 
@@ -624,7 +625,8 @@ class WalletIdentity(Base):
         index=True,
     )
     chain = Column(String(32), nullable=False)  # 'eip155' | 'solana'
-    address = Column(String(128), nullable=False)
+    address = Column(Text, nullable=False)
+    address_hash = Column(String(64), nullable=True)
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

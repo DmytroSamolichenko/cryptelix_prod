@@ -44,6 +44,7 @@ def app_modules():
         ConstructorBoard,
         Trade,
         User,
+        WalletIdentity,
     )
 
     for table in Base.metadata.tables.values():
@@ -62,6 +63,7 @@ def app_modules():
         ChatSession.__table__,
         ChatMessage.__table__,
         ConstructorBoard.__table__,
+        WalletIdentity.__table__,
     ]
     Base.metadata.create_all(engine, tables=tables)
     Session = sessionmaker(bind=engine, autocommit=False, autoflush=False)

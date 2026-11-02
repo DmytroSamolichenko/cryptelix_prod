@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import os
 from pathlib import Path
 
@@ -60,6 +62,17 @@ def decrypt_data(encrypted_text: str) -> str:
     except InvalidToken as exc:
         raise ValueError("Failed to decrypt data. The token may be invalid or corrupted.") from exc
     return decrypted.decode("utf-8")
+
+
+def blind_index(value: str) -> str:
+    """Stable HMAC-SHA256 hex for equality lookup of a secret column.
+
+    Fernet ciphertext cannot be queried. The digest is not reversible without
+    MASTER_KEY, so a database-only copy does not reveal the plaintext.
+    """
+    if value is None:
+        raise ValueError("value must not be None.")
+    return hmac.new(MASTER_KEY, value.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 if __name__ == "__main__":
