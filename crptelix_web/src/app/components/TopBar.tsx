@@ -9,7 +9,7 @@ import { motion } from 'motion/react';
 import { apiFetch } from '../lib/apiClient';
 
 interface TopBarProps {
-  userEmail: string;
+  userEmail: string | null;
   userSignedInAt: string;
   onLogout: () => void;
   currentView: 'constructor' | 'database';

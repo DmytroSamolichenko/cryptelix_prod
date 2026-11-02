@@ -7,7 +7,7 @@ const userAvatar = '/default-user-avatar.svg';
 interface UserProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
-  email: string;
+  email: string | null;
   signedInAt: string;
   onLogout: () => void;
   totalConnections: number;
@@ -82,7 +82,7 @@ export function UserProfileModal({
                 <h2 className="text-2xl font-bold text-white mb-1">{displayName}</h2>
                 <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
                   <Mail className="w-4 h-4" />
-                  <span>{email}</span>
+                  <span>{email || 'Wallet account'}</span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-500">
                   <Calendar className="w-3.5 h-3.5" />

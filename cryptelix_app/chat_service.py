@@ -23,6 +23,7 @@ from binance_market_service import (
     parse_fields as parse_binance_market_fields,
 )
 from ai_usage import add_response_usage, log_from_acc
+from ai_quota import reserve_chat
 from models import ChatMessage as ChatMessageModel
 from models import ChatSession as ChatSessionModel
 from models import Trade as TradeModel
@@ -900,6 +901,9 @@ def send_chat(
         if session is None or session.user_id != user_id:
             raise ChatServiceError("Session not found")
         print("[chat_service/send_chat] loaded session", session.id, flush=True)
+
+    # Before any write or model call, so a rejected turn leaves no chat row.
+    reserve_chat(user_id)
 
     if session is None:
         session = ChatSessionModel(

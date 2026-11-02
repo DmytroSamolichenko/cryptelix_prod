@@ -30,6 +30,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 from analytics_service import get_user_financial_summary
+from ai_quota import AiQuotaExceeded, reserve_analyze
 from ai_service import AIAnalysisError, analyze_trade_sync
 from turnstile import verify_turnstile
 import chat_service as chat_svc
@@ -56,6 +57,7 @@ from sessions import (
     set_refresh_cookie,
     validate_csrf,
 )
+from wallet_auth import issue_nonce, verify_and_get_user
 from database import SessionLocal, get_db
 from binance_connect_service import run_binance_connect_pipeline
 from exchange_service import (
@@ -102,6 +104,7 @@ from models import Feedback as FeedbackModel  # noqa: F401 — register ORM mapp
 from models import PairInventory as PairInventoryModel  # noqa: F401
 from models import Trade as TradeModel
 from models import User as UserModel
+from models import WalletIdentity as WalletIdentityModel  # noqa: F401 — register ORM mapper
 from schemas import ChatSendRequest
 from schemas import (
     AuthActivateRequest,
@@ -109,6 +112,8 @@ from schemas import (
     AuthLoginRequest,
     AuthTokenResponse,
     CheckEmailResponse,
+    WalletNonceResponse,
+    WalletVerifyRequest,
     ConstructorBoardPutRequest,
     ConstructorBoardResponse,
     ExchangeCredentialsUpsertRequest,
@@ -329,6 +334,35 @@ def post_auth_login(
 ):
     _require_turnstile(request, body.turnstile_token)
     user = login_user(db, body.email, body.password)
+    return _issue_session(response, request, db, user)
+
+
+@app.get("/api/v1/auth/wallet/nonce", response_model=WalletNonceResponse)
+@limiter.limit("30/minute")
+def get_auth_wallet_nonce(request: Request):
+    """Issue a single-use nonce for SIWE / Solana sign-in."""
+    return issue_nonce()
+
+
+@app.post("/api/v1/auth/wallet/verify", response_model=AuthTokenResponse)
+@limiter.limit("20/minute")
+def post_auth_wallet_verify(
+    request: Request,
+    body: WalletVerifyRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Verify an EVM or Solana signature and issue the same session as email login."""
+    # Local frontend often has no Turnstile sitekey; still enforce in production.
+    if IS_PRODUCTION or body.turnstile_token:
+        _require_turnstile(request, body.turnstile_token)
+    user = verify_and_get_user(
+        db,
+        chain=body.chain,
+        address=body.address,
+        message=body.message,
+        signature=body.signature,
+    )
     return _issue_session(response, request, db, user)
 
 
@@ -1835,6 +1869,14 @@ async def analyze_trade_endpoint(
         raise HTTPException(status_code=404, detail="Trade not found")
 
     try:
+        reserve_analyze(current_user.id)
+    except AiQuotaExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=exc.detail,
+        ) from exc
+
+    try:
         report = await run_in_threadpool(analyze_trade_sync, trade, current_user.id)
     except AIAnalysisError as exc:
         logger.exception("AI analysis failed")
@@ -1911,6 +1953,11 @@ def post_chat_send(
         )
         print("[chat/send] OK session_id=", result.get("session_id"), flush=True)
         return result
+    except AiQuotaExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=exc.detail,
+        ) from exc
     except chat_svc.ChatServiceError as exc:
         detail = str(exc)
         if detail == "Empty message":

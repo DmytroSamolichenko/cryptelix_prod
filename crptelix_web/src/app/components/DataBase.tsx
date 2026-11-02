@@ -466,13 +466,13 @@ export function DataBase() {
   }, [sheet.deals.length, exporting]);
 
   const [aiAnalyzeBusy, setAiAnalyzeBusy] = useState<Record<string, boolean>>({});
-  const [aiAnalyzeError, setAiAnalyzeError] = useState<Record<string, boolean>>({});
+  const [aiAnalyzeError, setAiAnalyzeError] = useState<Record<string, string>>({});
   const [aiInsightsExpanded, setAiInsightsExpanded] = useState<Record<string, boolean>>({});
   const [activeDateEditor, setActiveDateEditor] = useState<string | null>(null);
 
   const handleAnalyzeAi = useCallback(async (dealId: string) => {
     if (!isPersistedTradeId(dealId)) return;
-    setAiAnalyzeError((prev) => ({ ...prev, [dealId]: false }));
+    setAiAnalyzeError((prev) => ({ ...prev, [dealId]: '' }));
     setAiAnalyzeBusy((prev) => ({ ...prev, [dealId]: true }));
     try {
       const res = await apiFetch(
@@ -480,7 +480,16 @@ export function DataBase() {
         { method: 'POST' }
       );
       if (!res.ok) {
-        setAiAnalyzeError((prev) => ({ ...prev, [dealId]: true }));
+        let message = 'Error - Try again';
+        try {
+          const body = (await res.json()) as { detail?: unknown };
+          if (typeof body.detail === 'string' && body.detail.trim()) {
+            message = body.detail.trim();
+          }
+        } catch {
+          /* keep the generic message */
+        }
+        setAiAnalyzeError((prev) => ({ ...prev, [dealId]: message }));
         return;
       }
       const data = (await res.json()) as { ai_report?: string | null };
@@ -493,7 +502,7 @@ export function DataBase() {
         deals: prev.deals.map((d) => (d.id === dealId ? { ...d, ai_report: report } : d)),
       }));
     } catch {
-      setAiAnalyzeError((prev) => ({ ...prev, [dealId]: true }));
+      setAiAnalyzeError((prev) => ({ ...prev, [dealId]: 'Error - Try again' }));
     } finally {
       setAiAnalyzeBusy((prev) => ({ ...prev, [dealId]: false }));
     }
@@ -1064,7 +1073,7 @@ export function DataBase() {
                         ) : column.id === 'ai_report' ? (
                           (() => {
                             const busy = !!aiAnalyzeBusy[deal.id];
-                            const err = !!aiAnalyzeError[deal.id];
+                            const err = aiAnalyzeError[deal.id] || '';
                             const raw = String(deal.ai_report ?? '');
                             const empty = isAiReportEmpty(raw);
                             const expanded = !!aiInsightsExpanded[deal.id];
@@ -1088,7 +1097,7 @@ export function DataBase() {
                             if (err) {
                               return (
                                 <div className="flex flex-col items-start gap-1 px-3 py-2.5">
-                                  <span className="text-sm text-red-400">Error - Try again</span>
+                                  <span className="text-sm text-red-400">{err}</span>
                                   <button
                                     type="button"
                                     onClick={() => void handleAnalyzeAi(deal.id)}

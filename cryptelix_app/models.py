@@ -43,7 +43,8 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), nullable=True)
-    email = Column(String(100), nullable=False, unique=True, index=True)
+    # Nullable for wallet-only accounts (email invite users still have a value).
+    email = Column(String(100), nullable=True, unique=True, index=True)
     created_at = Column(DateTime, nullable=True)
     # NULL until the invited user completes first-time activation (set password).
     password_hash = Column(String(255), nullable=True)
@@ -599,6 +600,31 @@ class AuthSession(Base):
     )
     user_agent = Column(String(400), nullable=True)
     ip = Column(String(64), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class WalletIdentity(Base):
+    """Linked wallet for SIWE / Sign-in-with-Solana (beta wallet auth).
+
+    UNIQUE (chain, address): one EVM or Solana address maps to one user.
+    Address storage: eip155 = lower(0x…); solana = canonical base58 (do not lower).
+    DDL applied manually (see sql/2026_11_wallet_identities.sql).
+    """
+
+    __tablename__ = "wallet_identities"
+    __table_args__ = {"schema": "public"}
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    chain = Column(String(32), nullable=False)  # 'eip155' | 'solana'
+    address = Column(String(128), nullable=False)
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

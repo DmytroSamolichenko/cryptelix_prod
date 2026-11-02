@@ -6,7 +6,7 @@
 
 export interface AuthUser {
   id: number;
-  email: string;
+  email: string | null;
   username?: string | null;
   signedInAt: string;
 }
@@ -49,7 +49,8 @@ export function clearAuth(): void {
   csrfToken = null;
 }
 
-export function displayNameFromEmail(email: string): string {
+export function displayNameFromEmail(email: string | null | undefined): string {
+  if (!email) return 'Wallet user';
   const local = email.split('@')[0]?.trim();
   if (!local) return 'User';
   return local

@@ -97,7 +97,7 @@ class AuthEmailRequest(BaseModel):
 
 class AuthActivateRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=255)
-    password: str = Field(..., min_length=8, max_length=128)
+    password: str = Field(..., min_length=10, max_length=72)
     invite_code: str = Field(..., min_length=1, max_length=128)
     # Cloudflare Turnstile token (optional; enforced only when TURNSTILE_SECRET set).
     turnstile_token: str | None = Field(default=None, max_length=4096)
@@ -112,8 +112,23 @@ class AuthLoginRequest(BaseModel):
 
 class UserPublic(BaseModel):
     id: int
-    email: str
+    email: str | None = None
     username: str | None = None
+
+
+class WalletNonceResponse(BaseModel):
+    nonce: str
+    message: str
+    domain: str
+    issued_at: str
+
+
+class WalletVerifyRequest(BaseModel):
+    chain: str = Field(..., min_length=3, max_length=32)
+    address: str = Field(..., min_length=32, max_length=128)
+    message: str = Field(..., min_length=8, max_length=4096)
+    signature: str = Field(..., min_length=8, max_length=4096)
+    turnstile_token: str | None = Field(default=None, max_length=4096)
 
 
 class AuthTokenResponse(BaseModel):

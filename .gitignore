@@ -6,6 +6,12 @@ crptelix_web/.env
 crptelix_web/.env.local
 crptelix_web/.env.*.local
 
+# Agent skills and local assistant config — not the product
+.agents/
+.claude/
+agent/
+skills-lock.json
+
 # Personal / local documentation — not for git / publishing
 docs/
 *.md

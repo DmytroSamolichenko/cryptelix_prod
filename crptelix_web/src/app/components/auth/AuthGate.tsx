@@ -32,13 +32,13 @@ export function AuthGate({ children }: AuthGateProps) {
         }
         const me = (await res.json()) as {
           id: number;
-          email: string;
+          email?: string | null;
           username?: string | null;
         };
         if (cancelled) return;
         setUser({
           id: me.id,
-          email: me.email,
+          email: me.email ?? null,
           username: me.username ?? null,
           signedInAt: new Date().toISOString(),
         });

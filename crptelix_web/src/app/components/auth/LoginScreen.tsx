@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, FormEvent } from 'react';
-import { ArrowRight, Eye, EyeOff, Lock, Mail } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, Lock, Mail, Wallet } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CryptelixLogo } from '../CryptelixLogo';
 import { isValidEmail, type AuthSession } from '../../lib/authStorage';
 import { apiFetch } from '../../lib/apiClient';
 import { TurnstileWidget, TURNSTILE_ENABLED } from './TurnstileWidget';
+import { REOWN_ENABLED, useConfiguredWalletSignIn } from '../../lib/walletSignIn';
 
 type AuthStep = 'email' | 'password';
 type AuthMode = 'needs_activation' | 'needs_login';
@@ -17,7 +18,71 @@ interface TokenResponse {
   access_token: string;
   token_type: string;
   csrf_token?: string | null;
-  user: { id: number; email: string; username?: string | null };
+  user: { id: number; email?: string | null; username?: string | null };
+}
+
+function WalletContinueButton({
+  onSuccess,
+  setError,
+  isSubmitting,
+  setIsSubmitting,
+  turnstileToken,
+  resetTurnstile,
+}: {
+  onSuccess: (session: AuthSession) => void;
+  setError: (value: string) => void;
+  isSubmitting: boolean;
+  setIsSubmitting: (value: boolean) => void;
+  turnstileToken: string;
+  resetTurnstile: () => void;
+}) {
+  const { signIn } = useConfiguredWalletSignIn();
+
+  const handleWallet = async () => {
+    if (TURNSTILE_ENABLED && !turnstileToken) {
+      setError('Please complete the verification below.');
+      return;
+    }
+    setError('');
+    setIsSubmitting(true);
+    try {
+      const session = await signIn(turnstileToken || undefined);
+      onSuccess(session);
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : 'Wallet sign-in failed.';
+      setError(message);
+      resetTurnstile();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="relative my-5">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-zinc-800" />
+        </div>
+        <div className="relative flex justify-center">
+          <span className="bg-zinc-900/90 px-3 text-[11px] uppercase tracking-wide text-zinc-500">
+            or
+          </span>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => void handleWallet()}
+        disabled={isSubmitting}
+        className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-950 text-sm font-semibold text-white transition-colors hover:border-yellow-500/50 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <Wallet className="h-4 w-4 text-yellow-400" />
+        Continue with wallet
+      </button>
+      <p className="mt-2 text-center text-[11px] leading-relaxed text-zinc-500">
+        If you lose this wallet, you cannot recover the account unless you later add an email.
+      </p>
+    </>
+  );
 }
 
 export function LoginScreen({ onSuccess }: LoginScreenProps) {
@@ -118,8 +183,19 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
         setError('Enter your invite code.');
         return;
       }
-      if (trimmedPassword.length < 8) {
-        setError('Password must be at least 8 characters.');
+      if (trimmedPassword.length < 10) {
+        setError('Password must be at least 10 characters.');
+        return;
+      }
+      if (
+        !/[A-Z]/.test(trimmedPassword) ||
+        !/[a-z]/.test(trimmedPassword) ||
+        !/[0-9]/.test(trimmedPassword) ||
+        !/[^A-Za-z0-9]/.test(trimmedPassword)
+      ) {
+        setError(
+          'Password must include uppercase, lowercase, a number, and a symbol.'
+        );
         return;
       }
       if (trimmedPassword !== confirmPassword.trim()) {
@@ -185,7 +261,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
         csrfToken: data.csrf_token ?? undefined,
         user: {
           id: data.user.id,
-          email: data.user.email,
+          email: data.user.email ?? null,
           username: data.user.username ?? null,
           signedInAt: new Date().toISOString(),
         },
@@ -306,6 +382,29 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                   </>
                 )}
               </motion.button>
+
+              {REOWN_ENABLED ? (
+                <>
+                  {TURNSTILE_ENABLED && (
+                    <TurnstileWidget
+                      key={turnstileNonce}
+                      onVerify={(token) => {
+                        setTurnstileToken(token);
+                        setError('');
+                      }}
+                      onExpire={() => setTurnstileToken('')}
+                    />
+                  )}
+                  <WalletContinueButton
+                    onSuccess={onSuccess}
+                    setError={setError}
+                    isSubmitting={isSubmitting}
+                    setIsSubmitting={setIsSubmitting}
+                    turnstileToken={turnstileToken}
+                    resetTurnstile={resetTurnstile}
+                  />
+                </>
+              ) : null}
             </form>
           ) : (
             <form onSubmit={handlePasswordStep} className="space-y-4">
@@ -352,7 +451,11 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                     id="login-password"
                     type={showPassword ? 'text' : 'password'}
                     autoComplete={isActivate ? 'new-password' : 'current-password'}
-                    placeholder={isActivate ? 'At least 8 characters' : 'Enter your password'}
+                    placeholder={
+                      isActivate
+                        ? '10+ chars, upper, lower, number, symbol'
+                        : 'Enter your password'
+                    }
                     value={password}
                     onChange={(e) => {
                       setPassword(e.target.value);
