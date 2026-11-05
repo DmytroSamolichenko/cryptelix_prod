@@ -41,7 +41,7 @@ export type WidgetType =
 export function widgetDefaultSize(type: WidgetType): { width: number; height: number } {
   switch (type) {
     case 'table':
-      return { width: 600, height: 500 };
+      return { width: 680, height: 420 };
     case 'portfolio':
     case 'portfolio-widget':
       return { width: 800, height: 600 };

@@ -155,103 +155,129 @@ export function FeeComparatorWidget({
     return Math.max(...data.rows.map((r) => r.fee_usd), 0.01);
   }, [data]);
 
+  const segWrap = 'inline-flex shrink-0 gap-0.5 rounded-xl border border-zinc-800 bg-zinc-950 p-0.5';
+  const chipBtn = (active: boolean) =>
+    `rounded-[10px] px-2.5 py-1 text-xs transition-colors ${
+      active ? 'bg-yellow-400 font-medium text-zinc-950' : 'text-zinc-500 hover:text-zinc-300'
+    }`;
+  const labelCls = 'shrink-0 text-[11px] uppercase tracking-wider text-zinc-600';
+
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 p-1 text-xs text-gray-300">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {ALL_VENUES.map((v) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => toggleVenue(v)}
-            className={`rounded px-1.5 py-0.5 text-[10px] ${
-              venues.includes(v)
-                ? 'bg-yellow-500/15 text-yellow-400'
-                : 'bg-zinc-900 text-gray-500 hover:bg-zinc-800'
-            }`}
-          >
-            {VENUE_LABEL[v]}
-          </button>
-        ))}
+    <div className="flex h-full min-h-0 flex-col gap-2 p-1 text-xs text-zinc-300">
+      <div className="flex flex-nowrap items-center gap-2">
+        <div
+          className="flex min-w-0 flex-nowrap gap-0.5 overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-950 p-0.5 [scrollbar-width:none]"
+          role="group"
+          aria-label="Venues"
+        >
+          {ALL_VENUES.map((v) => {
+            const on = venues.includes(v);
+            return (
+              <button
+                key={v}
+                type="button"
+                onClick={() => toggleVenue(v)}
+                aria-pressed={on}
+                className={`shrink-0 rounded-[10px] px-2.5 py-1 text-xs transition-colors ${
+                  on
+                    ? 'bg-yellow-400/15 font-medium text-yellow-400'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                {VENUE_LABEL[v]}
+              </button>
+            );
+          })}
+        </div>
         <button
           type="button"
           onClick={() => void load()}
-          className="ml-auto inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-gray-400 hover:border-zinc-500 hover:text-white"
+          className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/60"
+          title="Refresh"
+          aria-label="Refresh"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[10px] uppercase tracking-wide text-gray-500">Notional</span>
-        {NOTIONALS.map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => setNotional(n)}
-            className={`rounded px-2 py-0.5 text-[11px] ${
-              notional === n
-                ? 'bg-zinc-700 text-white'
-                : 'bg-zinc-900 text-gray-400 hover:bg-zinc-800'
-            }`}
-          >
-            ${n >= 1000 ? `${n / 1000}k` : n}
-          </button>
-        ))}
-        <span className="ml-1 text-[10px] uppercase tracking-wide text-gray-500">Side</span>
-        {(['maker', 'taker', 'round_trip'] as FeeSide[]).map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setSide(s)}
-            className={`rounded px-2 py-0.5 text-[11px] ${
-              side === s
-                ? 'bg-zinc-700 text-white'
-                : 'bg-zinc-900 text-gray-400 hover:bg-zinc-800'
-            }`}
-          >
-            {s === 'round_trip' ? 'RT taker' : s}
-          </button>
-        ))}
+      <div className="flex flex-nowrap items-center gap-2 overflow-x-auto [scrollbar-width:none]">
+        <span className={labelCls}>Notional</span>
+        <div className={segWrap} role="group" aria-label="Notional">
+          {NOTIONALS.map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setNotional(n)}
+              aria-pressed={notional === n}
+              className={chipBtn(notional === n)}
+            >
+              ${n >= 1000 ? `${n / 1000}k` : n}
+            </button>
+          ))}
+        </div>
+        <span className={`${labelCls} ml-1`}>Side</span>
+        <div className={segWrap} role="group" aria-label="Fee side">
+          {(['maker', 'taker', 'round_trip'] as FeeSide[]).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setSide(s)}
+              aria-pressed={side === s}
+              className={`${chipBtn(side === s)} capitalize`}
+            >
+              {s === 'round_trip' ? 'Round trip' : s}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {error && (
-          <div className="rounded border border-red-500/30 bg-red-500/10 px-2 py-2 text-[11px] text-red-300">
+          <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-300">
             {error}
           </div>
         )}
         {!error && data && (
-          <div className="flex flex-col gap-2">
+          <div className="flex min-h-full flex-col gap-2">
             {data.rows.map((row) => {
               const cheapest = data.cheapest_venue === row.venue;
               const widthPct = Math.max(4, (row.fee_usd / maxFee) * 100);
               return (
                 <div
                   key={row.venue}
-                  className={`rounded border px-2.5 py-2 ${
+                  className={`flex min-h-[64px] flex-1 flex-col justify-center rounded-xl border px-3 py-2 ${
                     cheapest
-                      ? 'border-yellow-500/40 bg-yellow-500/5'
-                      : 'border-zinc-800 bg-zinc-950/80'
+                      ? 'border-yellow-500/40 bg-yellow-500/[0.06]'
+                      : 'border-zinc-800 bg-zinc-950/60'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-medium text-white">
-                      {VENUE_LABEL[row.venue]}
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="text-[13px] font-medium text-[#e8e4d9]">
+                        {VENUE_LABEL[row.venue]}
+                      </span>
                       {row.tier ? (
-                        <span className="ml-1 text-[10px] text-gray-500">{row.tier}</span>
+                        <span className="truncate rounded-md border border-zinc-800 px-1.5 text-[11px] text-zinc-500">
+                          {row.tier}
+                        </span>
                       ) : null}
-                    </span>
-                    <span className="tabular-nums text-sm font-semibold text-white">
+                      {cheapest ? (
+                        <span className="text-[11px] font-medium text-yellow-400">Lowest</span>
+                      ) : null}
+                    </div>
+                    <span className="shrink-0 text-base font-semibold tabular-nums text-[#f5f1e6]">
                       {formatUsd(row.fee_usd)}
                     </span>
                   </div>
-                  <div className="mt-1.5 h-1.5 overflow-hidden rounded bg-zinc-800">
+                  <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-zinc-800">
                     <div
-                      className={`h-full rounded ${cheapest ? 'bg-yellow-500' : 'bg-zinc-500'}`}
+                      className={`h-full rounded-full transition-[width] duration-300 ${
+                        cheapest ? 'bg-yellow-400' : 'bg-zinc-600'
+                      }`}
                       style={{ width: `${widthPct}%` }}
                     />
                   </div>
-                  <div className="mt-1 flex justify-between text-[10px] text-gray-500">
+                  <div className="mt-1.5 flex justify-between text-[11px] tabular-nums text-zinc-500">
                     <span>maker {row.maker_bps.toFixed(2)} bps</span>
                     <span>taker {row.taker_bps.toFixed(2)} bps</span>
                   </div>
@@ -261,11 +287,11 @@ export function FeeComparatorWidget({
           </div>
         )}
         {!error && loading && !data && (
-          <div className="flex h-24 items-center justify-center text-gray-500">Loading…</div>
+          <div className="flex h-24 items-center justify-center text-zinc-500">Loading…</div>
         )}
       </div>
 
-      <p className="border-t border-zinc-800 pt-1.5 text-[10px] leading-snug text-gray-600">
+      <p className="border-t border-zinc-900 pt-1.5 text-[11px] leading-snug text-zinc-600">
         Fee comparator · perp trading fees only · educational · not financial advice
       </p>
     </div>

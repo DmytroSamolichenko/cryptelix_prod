@@ -1,3 +1,27 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+
+/* Login skeleton: flat placeholder with a soft amber sweep travelling left to right. */
+.cx-skeleton {
+  overflow: hidden;
+  background-color: #26262a;
+}
+.cx-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(250, 204, 21, 0.1) 50%, transparent 100%);
+  animation: cx-skeleton-sweep 1.5s ease-in-out infinite;
+}
+@keyframes cx-skeleton-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cx-skeleton::after {
+    animation: none;
+  }
+}

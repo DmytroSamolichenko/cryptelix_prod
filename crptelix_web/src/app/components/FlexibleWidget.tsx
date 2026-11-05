@@ -50,7 +50,10 @@ function widgetHasDarkSkin(widget: Widget): boolean {
     widget.type === 'portfolio' ||
     widget.type === 'portfolio-widget' ||
     widget.type === 'funding-rates' ||
-    widget.type === 'position-impact'
+    widget.type === 'position-impact' ||
+    widget.type === 'fee-comparator' ||
+    widget.type === 'perp-coverage' ||
+    widget.type === 'venue-spread'
   );
 }
 

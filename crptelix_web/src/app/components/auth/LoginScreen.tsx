@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, FormEvent } from 'react';
+import { useState, useRef, useEffect, FormEvent, type ReactNode } from 'react';
 import { AlertCircle, ArrowRight, Eye, EyeOff, Lock, Mail, Wallet } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CryptelixLogo } from '../CryptelixLogo';
@@ -16,8 +16,102 @@ const FOCUS_RING =
 // Autofill otherwise paints the browser's pale blue over the dark field.
 const INPUT_BASE =
   'h-10 w-full rounded-lg border border-zinc-800 bg-zinc-950 text-[13px] text-white caret-yellow-400 outline-none transition-colors placeholder:text-zinc-500 hover:border-zinc-700 focus:border-yellow-500/60 focus:ring-2 focus:ring-yellow-500/15 disabled:opacity-60 selection:bg-yellow-400/25 [&:-webkit-autofill]:[-webkit-text-fill-color:#fff] [&:-webkit-autofill]:[box-shadow:inset_0_0_0_1000px_#09090b]';
-const LABEL = 'mb-1.5 block text-xs font-medium leading-none text-zinc-400';
+const LABEL_TEXT = 'block text-xs font-medium leading-none text-zinc-400';
+const LABEL = `mb-1.5 ${LABEL_TEXT}`;
+
+/**
+ * Wraps a real element and overlays a skeleton of the exact same box. The real element always
+ * keeps its place in the layout, so the skeleton can never drift from the final design.
+ * `on` hides the real element; `mounted` keeps the skeleton in the DOM while it fades out.
+ */
+function Skel({
+  on,
+  mounted,
+  delay = 0,
+  wrapClass = '',
+  barClass = 'inset-0 rounded-lg',
+  skeleton,
+  children,
+}: {
+  on: boolean;
+  mounted: boolean;
+  delay?: number;
+  wrapClass?: string;
+  barClass?: string;
+  skeleton?: ReactNode;
+  children: ReactNode;
+}) {
+  const style = { transitionDelay: on ? '0ms' : `${delay}ms` };
+  const fade =
+    'transition-opacity duration-500 ease-out motion-reduce:transition-none';
+  return (
+    <div className={`relative ${wrapClass}`}>
+      <div
+        className={`transition-[opacity,transform] duration-500 ease-out motion-reduce:transition-none ${
+          on ? 'translate-y-1 opacity-0' : 'translate-y-0 opacity-100'
+        }`}
+        style={style}
+      >
+        {children}
+      </div>
+      {mounted &&
+        (skeleton ? (
+          <div
+            aria-hidden
+            className={`pointer-events-none absolute inset-0 ${fade} ${on ? 'opacity-100' : 'opacity-0'}`}
+            style={style}
+          >
+            {skeleton}
+          </div>
+        ) : (
+          <span
+            aria-hidden
+            className={`cx-skeleton pointer-events-none absolute ${barClass} ${fade} ${
+              on ? 'opacity-100' : 'opacity-0'
+            }`}
+            style={style}
+          />
+        ))}
+    </div>
+  );
+}
 const PRIMARY_BTN = `flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-yellow-500 text-[13px] font-semibold text-black transition-colors hover:bg-yellow-400 disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`;
+
+const SMOOTH = 'cubic-bezier(0.16, 1, 0.3, 1)';
+
+/**
+ * Collapsible slot for the Turnstile widget. It reserves the widget's height so nothing jumps while
+ * the challenge loads, then folds to zero height once verified, pulling the controls below up
+ * with it. Animating grid rows avoids measuring heights in JS.
+ */
+function TurnstileSlot({ open, children }: { open: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.inert = !open;
+  }, [open]);
+
+  return (
+    <div
+      ref={ref}
+      aria-hidden={!open}
+      className={`grid transition-[grid-template-rows,opacity] motion-reduce:transition-none ${
+        open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+      }`}
+      style={{ transitionDuration: '700ms, 380ms', transitionTimingFunction: SMOOTH }}
+    >
+      <div className="min-h-0 overflow-hidden">
+        <div
+          className={`pt-4 transition-transform motion-reduce:transition-none ${
+            open ? 'translate-y-0' : '-translate-y-3'
+          }`}
+          style={{ transitionDuration: '700ms', transitionTimingFunction: SMOOTH }}
+        >
+          <div className="flex min-h-[65px] items-center justify-center">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function FormError({ message }: { message: string }) {
   return (
@@ -46,6 +140,8 @@ function WalletContinueButton({
   setIsSubmitting,
   turnstileToken,
   resetTurnstile,
+  gated,
+  skelMounted,
 }: {
   onSuccess: (session: AuthSession) => void;
   setError: (value: string) => void;
@@ -53,6 +149,8 @@ function WalletContinueButton({
   setIsSubmitting: (value: boolean) => void;
   turnstileToken: string;
   resetTurnstile: () => void;
+  gated: boolean;
+  skelMounted: boolean;
 }) {
   const { signIn } = useConfiguredWalletSignIn();
   const [showNotice, setShowNotice] = useState(false);
@@ -100,23 +198,35 @@ function WalletContinueButton({
 
   return (
     <>
-      <div className="relative my-5">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-zinc-800" />
-        </div>
-        <div className="relative flex justify-center">
-          <span className="bg-zinc-900 px-3 text-xs text-zinc-500">or</span>
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={requestWallet}
-        disabled={isSubmitting}
-        className={`flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 text-[13px] font-semibold text-white transition-colors hover:border-yellow-500/50 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`}
+      <Skel
+        on={gated}
+        mounted={skelMounted}
+        delay={300}
+        wrapClass="my-5"
+        skeleton={
+          <span className="cx-skeleton absolute left-1/2 top-1/2 h-3 w-8 -translate-x-1/2 -translate-y-1/2 rounded" />
+        }
       >
-        <Wallet className="h-4 w-4 text-yellow-400" aria-hidden />
-        Continue with wallet
-      </button>
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-zinc-800" />
+          </div>
+          <div className="relative flex justify-center">
+            <span className="bg-zinc-900 px-3 text-xs text-zinc-500">or</span>
+          </div>
+        </div>
+      </Skel>
+      <Skel on={gated} mounted={skelMounted} delay={360}>
+        <button
+          type="button"
+          onClick={requestWallet}
+          disabled={isSubmitting}
+          className={`flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 text-[13px] font-semibold text-white transition-colors hover:border-yellow-500/50 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`}
+        >
+          <Wallet className="h-4 w-4 text-yellow-400" aria-hidden />
+          Continue with wallet
+        </button>
+      </Skel>
 
       <AnimatePresence>
         {showNotice && (
@@ -183,9 +293,39 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
     setTurnstileNonce((n) => n + 1);
   };
 
+  // The first Turnstile check gates the form behind a skeleton. It lifts on the first token, or
+  // after a timeout so a blocked challenge script never leaves the page unusable.
+  const gateConfigured = TURNSTILE_ENABLED && REOWN_ENABLED;
+  const [unlocked, setUnlocked] = useState(!gateConfigured);
+  const [skelMounted, setSkelMounted] = useState(gateConfigured);
+  const formRef = useRef<HTMLFormElement>(null);
+  const gated = gateConfigured && !unlocked && step === 'email';
+
   useEffect(() => {
-    inputRef.current?.focus();
-  }, [step]);
+    if (turnstileToken) setUnlocked(true);
+  }, [turnstileToken]);
+
+  useEffect(() => {
+    if (unlocked) return;
+    const id = window.setTimeout(() => setUnlocked(true), 15000);
+    return () => window.clearTimeout(id);
+  }, [unlocked]);
+
+  // Keep the skeleton mounted only while it is fading out.
+  useEffect(() => {
+    if (!unlocked) return;
+    const id = window.setTimeout(() => setSkelMounted(false), 1600);
+    return () => window.clearTimeout(id);
+  }, [unlocked]);
+
+  // Hidden controls must not be tabbable or clickable while the skeleton is up.
+  useEffect(() => {
+    if (formRef.current) formRef.current.inert = gated;
+  }, [gated, step]);
+
+  useEffect(() => {
+    if (!gated) inputRef.current?.focus();
+  }, [step, gated]);
 
   // Prefill the invite code from the activation link (e.g. ?invite=CODE).
   useEffect(() => {
@@ -389,11 +529,19 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
         className="relative z-10 w-full max-w-[460px]"
       >
         <div className="mb-16 flex flex-col items-center text-center">
-          <CryptelixLogo
-            variant="wordmark"
-            showAlpha={false}
-            className="h-16 w-auto select-none object-contain object-center sm:h-[4.5rem]"
-          />
+          <Skel
+            on={gated}
+            mounted={skelMounted}
+            delay={0}
+            wrapClass="inline-block"
+            barClass="inset-x-[14%] inset-y-[34%] rounded-md"
+          >
+            <CryptelixLogo
+              variant="wordmark"
+              showAlpha={false}
+              className="h-16 w-auto select-none object-contain object-center sm:h-[4.5rem]"
+            />
+          </Skel>
           <h1 className="mt-3 text-[2.15rem] font-bold leading-[1.1] tracking-tight text-white sm:text-5xl">
             Join your own
           </h1>
@@ -406,49 +554,71 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
           <div className="mb-7 text-center">
             {/* Kept exactly as designed: pinned to the app's default sans so the card font doesn't change it. */}
             <h2 className="font-sans text-[28px] font-bold tracking-tight text-white">Sign In</h2>
-            <p className="mt-2 text-[13px] leading-5 text-zinc-400 text-balance">
-              {step === 'email'
-                ? 'Enter your invited email to continue.'
-                : isActivate
-                  ? 'Create your password to finish setup.'
-                  : 'Enter your password to sign in.'}
-            </p>
+            <Skel
+              on={gated}
+              mounted={skelMounted}
+              delay={80}
+              wrapClass="mt-2"
+              barClass="inset-x-[12%] inset-y-[3px] rounded"
+            >
+              <p className="text-[13px] leading-5 text-zinc-400 text-balance">
+                {step === 'email'
+                  ? 'Enter your invited email to continue.'
+                  : isActivate
+                    ? 'Create your password to finish setup.'
+                    : 'Enter your password to sign in.'}
+              </p>
+            </Skel>
           </div>
 
           {step === 'email' ? (
             <motion.form
               key="email-step"
+              ref={formRef}
               onSubmit={handleEmailStep}
               className="space-y-4"
+              aria-busy={gated}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
             >
               <div>
-                <label htmlFor="login-email" className={LABEL}>
-                  Email address
-                </label>
-                <div className="relative">
-                  <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                  <input
-                    ref={inputRef}
-                    id="login-email"
-                    type="email"
-                    autoComplete="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      if (error) setError('');
-                    }}
-                    disabled={isSubmitting}
-                    className={`${INPUT_BASE} pl-10 pr-3`}
-                  />
-                </div>
+                <Skel
+                  on={gated}
+                  mounted={skelMounted}
+                  delay={140}
+                  wrapClass="mb-1.5"
+                  barClass="left-0 top-0 h-3 w-24 rounded"
+                >
+                  <label htmlFor="login-email" className={LABEL_TEXT}>
+                    Email address
+                  </label>
+                </Skel>
+                <Skel on={gated} mounted={skelMounted} delay={180}>
+                  <div className="relative">
+                    <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                    <input
+                      ref={inputRef}
+                      id="login-email"
+                      type="email"
+                      autoComplete="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        if (error) setError('');
+                      }}
+                      disabled={isSubmitting}
+                      className={`${INPUT_BASE} pl-10 pr-3`}
+                    />
+                  </div>
+                </Skel>
               </div>
 
               {error && <FormError message={error} />}
 
+              <div>
+              <Skel on={gated} mounted={skelMounted} delay={240}>
               <motion.button
                 type="submit"
                 disabled={isSubmitting || !email.trim()}
@@ -467,28 +637,34 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                   </>
                 )}
               </motion.button>
+              </Skel>
+
+              {/* Sits in the flow between Continue and the wallet button, then folds away once verified. */}
+              {gateConfigured && (
+                <TurnstileSlot open={!turnstileToken}>
+                  <TurnstileWidget
+                    key={turnstileNonce}
+                    onVerify={(token) => {
+                      setTurnstileToken(token);
+                      setError('');
+                    }}
+                    onExpire={() => setTurnstileToken('')}
+                  />
+                </TurnstileSlot>
+              )}
+              </div>
 
               {REOWN_ENABLED ? (
-                <>
-                  <WalletContinueButton
-                    onSuccess={onSuccess}
-                    setError={setError}
-                    isSubmitting={isSubmitting}
-                    setIsSubmitting={setIsSubmitting}
-                    turnstileToken={turnstileToken}
-                    resetTurnstile={resetTurnstile}
-                  />
-                  {TURNSTILE_ENABLED && (
-                    <TurnstileWidget
-                      key={turnstileNonce}
-                      onVerify={(token) => {
-                        setTurnstileToken(token);
-                        setError('');
-                      }}
-                      onExpire={() => setTurnstileToken('')}
-                    />
-                  )}
-                </>
+                <WalletContinueButton
+                  onSuccess={onSuccess}
+                  setError={setError}
+                  isSubmitting={isSubmitting}
+                  setIsSubmitting={setIsSubmitting}
+                  turnstileToken={turnstileToken}
+                  resetTurnstile={resetTurnstile}
+                  gated={gated}
+                  skelMounted={skelMounted}
+                />
               ) : null}
             </motion.form>
           ) : (
@@ -630,30 +806,52 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
             </motion.form>
           )}
 
-          <p className="mt-5 text-center text-xs text-zinc-500">Beta Test</p>
+          <Skel
+            on={gated}
+            mounted={skelMounted}
+            delay={420}
+            wrapClass="mt-5"
+            barClass="left-1/2 inset-y-[3px] w-16 -translate-x-1/2 rounded"
+          >
+            <p className="text-center text-xs text-zinc-500">Beta Test</p>
+          </Skel>
+
         </div>
 
-        <p className="mt-4 px-2 text-center text-[13px] leading-relaxed text-zinc-500 text-balance">
-          By continuing, you acknowledge that you understand and agree to the{' '}
-          <a
-            href="https://cryptelix.app/privacy-policy"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-yellow-500/90 underline decoration-yellow-500/40 underline-offset-2 hover:text-yellow-400"
-          >
-            Privacy Policy
-          </a>
-          {' '}and{' '}
-          <a
-            href="https://cryptelix.app/terms-and-conditions"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-yellow-500/90 underline decoration-yellow-500/40 underline-offset-2 hover:text-yellow-400"
-          >
-            Terms &amp; Conditions
-          </a>
-          .
-        </p>
+        <Skel
+          on={gated}
+          mounted={skelMounted}
+          delay={480}
+          wrapClass="mt-4"
+          skeleton={
+            <>
+              <span className="cx-skeleton absolute inset-x-[14%] top-[5px] h-3 rounded" />
+              <span className="cx-skeleton absolute inset-x-[30%] top-[26px] h-3 rounded" />
+            </>
+          }
+        >
+          <p className="px-2 text-center text-[13px] leading-relaxed text-zinc-500 text-balance">
+            By continuing, you acknowledge that you understand and agree to the{' '}
+            <a
+              href="https://cryptelix.app/privacy-policy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-yellow-500/90 underline decoration-yellow-500/40 underline-offset-2 hover:text-yellow-400"
+            >
+              Privacy Policy
+            </a>
+            {' '}and{' '}
+            <a
+              href="https://cryptelix.app/terms-and-conditions"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-yellow-500/90 underline decoration-yellow-500/40 underline-offset-2 hover:text-yellow-400"
+            >
+              Terms &amp; Conditions
+            </a>
+            .
+          </p>
+        </Skel>
       </motion.div>
     </div>
   );

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeftRight, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 
 import { apiFetch } from '../lib/apiClient';
+import { Dropdown, type DropdownOption } from './WidgetDropdown';
 
 type SpreadVenue = 'phoenix' | 'backpack' | 'pacifica';
 
@@ -36,6 +37,18 @@ const VENUE_LABEL: Record<SpreadVenue, string> = {
   backpack: 'Backpack',
   pacifica: 'Pacifica',
 };
+
+const VENUE_HINT: Record<SpreadVenue, string> = {
+  phoenix: 'DEX',
+  backpack: 'CEX',
+  pacifica: 'DEX',
+};
+
+const VENUE_OPTIONS: DropdownOption<SpreadVenue>[] = ALL_VENUES.map((v) => ({
+  value: v,
+  label: VENUE_LABEL[v],
+  hint: VENUE_HINT[v],
+}));
 
 const DEFAULT_PREFS: SpreadPrefs = {
   symbol: 'SOL',
@@ -148,47 +161,49 @@ export function SpreadWidget({ initialData, onPersistPrefs }: SpreadWidgetProps)
   }, [load]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 p-1 text-xs text-gray-300">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <select
+    <div className="@container flex h-full min-h-0 flex-col gap-2 p-1 text-xs text-zinc-300">
+      <div className="flex flex-wrap items-center gap-2">
+        <Dropdown
+          title="Symbol"
           value={symbol}
-          onChange={(e) => setSymbol(e.target.value)}
-          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-white outline-none focus:border-yellow-500/50"
-        >
-          {SYMBOLS.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <select
-          value={venue}
-          onChange={(e) => setVenue(e.target.value as SpreadVenue)}
-          disabled={compareOn}
-          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-white outline-none focus:border-yellow-500/50 disabled:opacity-50"
-        >
-          {ALL_VENUES.map((v) => (
-            <option key={v} value={v}>
-              {VENUE_LABEL[v]}
-            </option>
-          ))}
-        </select>
+          onChange={setSymbol}
+          options={SYMBOLS.map((s) => ({ value: s, label: s }))}
+        />
+        {!compareOn && (
+          <Dropdown<SpreadVenue>
+            title="Venue"
+            value={venue}
+            onChange={setVenue}
+            options={VENUE_OPTIONS}
+          />
+        )}
         <button
           type="button"
+          role="switch"
+          aria-checked={compareOn}
           onClick={() => setCompareOn((v) => !v)}
-          className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs ${
-            compareOn
-              ? 'border-yellow-500/50 bg-yellow-500/10 text-yellow-400'
-              : 'border-zinc-700 bg-zinc-900 text-gray-300 hover:border-zinc-500'
-          }`}
+          className="ml-auto inline-flex shrink-0 items-center gap-2 text-xs text-zinc-400 hover:text-zinc-200"
+          title="Compare venues"
         >
-          <ArrowLeftRight className="h-3.5 w-3.5" />
           Compare
+          <span
+            className={`relative h-[17px] w-[30px] rounded-full transition-colors ${
+              compareOn ? 'bg-yellow-400' : 'bg-zinc-800'
+            }`}
+          >
+            <span
+              className={`absolute top-[2px] h-[13px] w-[13px] rounded-full transition-all ${
+                compareOn ? 'left-[15px] bg-zinc-950' : 'left-[2px] bg-zinc-500'
+              }`}
+            />
+          </span>
         </button>
         <button
           type="button"
           onClick={() => void load()}
-          className="ml-auto inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-gray-400 hover:border-zinc-500 hover:text-white"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/60"
+          title="Refresh"
+          aria-label="Refresh"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
@@ -196,13 +211,17 @@ export function SpreadWidget({ initialData, onPersistPrefs }: SpreadWidgetProps)
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {error && (
-          <div className="rounded border border-red-500/30 bg-red-500/10 px-2 py-2 text-[11px] text-red-300">
+          <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-300">
             {error}
           </div>
         )}
-        {!error && !compareOn && single && <SpreadCard row={single} />}
+        {!error && !compareOn && single && (
+          <div className="flex min-h-full flex-col">
+            <SpreadCard row={single} large />
+          </div>
+        )}
         {!error && compareOn && compare && (
-          <div className="flex flex-col gap-2">
+          <div className="flex min-h-full flex-col gap-2">
             {compare.venues.map((row) => (
               <SpreadCard
                 key={row.venue}
@@ -214,7 +233,7 @@ export function SpreadWidget({ initialData, onPersistPrefs }: SpreadWidgetProps)
               Object.entries(compare.errors).map(([v, msg]) => (
                 <div
                   key={v}
-                  className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200"
+                  className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200"
                 >
                   {VENUE_LABEL[v as SpreadVenue] ?? v}: {msg}
                 </div>
@@ -222,43 +241,118 @@ export function SpreadWidget({ initialData, onPersistPrefs }: SpreadWidgetProps)
           </div>
         )}
         {!error && loading && !single && !compare && (
-          <div className="flex h-24 items-center justify-center text-gray-500">Loading…</div>
+          <div className="flex h-24 items-center justify-center text-zinc-500">Loading…</div>
         )}
       </div>
 
-      <p className="border-t border-zinc-800 pt-1.5 text-[10px] leading-snug text-gray-600">
+      <p className="border-t border-zinc-900 pt-1.5 text-[11px] leading-snug text-zinc-600">
         Touch spread · (ask − bid) / mid · L2 snapshot · educational
       </p>
     </div>
   );
 }
 
-function SpreadCard({ row, highlight }: { row: SpreadRow; highlight?: boolean }) {
+function PriceCell({
+  label,
+  value,
+  align = 'left',
+}: {
+  label: string;
+  value: string;
+  align?: 'left' | 'center' | 'right';
+}) {
+  const alignCls = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : '';
+  return (
+    <div className={alignCls}>
+      <div className="text-[11px] uppercase tracking-wider text-zinc-600">{label}</div>
+      <div className="text-[13px] font-medium tabular-nums text-zinc-300">{value}</div>
+    </div>
+  );
+}
+
+function SpreadCard({
+  row,
+  highlight,
+  large,
+}: {
+  row: SpreadRow;
+  highlight?: boolean;
+  large?: boolean;
+}) {
+  if (large) {
+    // Single-venue view adapts to the widget's own width (container queries on the widget root):
+    // type scales with width, prices sit beside the figure when wide and stack as rows when narrow.
+    const asOf = row.fetched_at ? new Date(row.fetched_at).toLocaleTimeString() : null;
+    return (
+      <div className="flex min-h-[170px] flex-1 flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3.5 @min-[560px]:p-5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[13px] font-medium text-[#e8e4d9]">
+            {VENUE_LABEL[row.venue] ?? row.venue}
+          </span>
+          {asOf && <span className="text-[11px] tabular-nums text-zinc-600">As of {asOf}</span>}
+        </div>
+
+        <div className="flex flex-1 flex-col justify-center gap-4 @min-[560px]:flex-row @min-[560px]:items-center @min-[560px]:justify-between @min-[560px]:gap-6">
+          <div className="min-w-0">
+            <div className="whitespace-nowrap text-[clamp(2.5rem,12cqw,4rem)] font-semibold @min-[560px]:text-[clamp(2.25rem,6.5cqw,4.25rem)] leading-none tabular-nums text-[#f5f1e6]">
+              {formatBps(row.spread_bps)}
+            </div>
+            <div className="mt-2 text-xs text-zinc-500">
+              Touch spread · {formatPrice(row.spread_abs)} wide
+            </div>
+          </div>
+
+          <div className="grid shrink-0 grid-cols-1 divide-y divide-zinc-800 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950 @min-[360px]:grid-cols-3 @min-[360px]:divide-x @min-[360px]:divide-y-0 @min-[560px]:w-[min(54%,440px)]">
+            {[
+              { label: 'Bid', value: row.bid, tone: 'text-emerald-400' },
+              { label: 'Mid', value: row.mid, tone: 'text-[#e8e4d9]' },
+              { label: 'Ask', value: row.ask, tone: 'text-rose-400' },
+            ].map((cell) => (
+              <div
+                key={cell.label}
+                className="flex min-w-0 items-baseline justify-between gap-2 px-2.5 py-2 @min-[360px]:block"
+              >
+                <div className="text-[11px] uppercase tracking-wider text-zinc-600">
+                  {cell.label}
+                </div>
+                <div
+                  className={`truncate text-[clamp(0.9rem,2.4cqw,1.3rem)] font-semibold tabular-nums ${cell.tone}`}
+                >
+                  {formatPrice(cell.value)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
-      className={`rounded border px-2.5 py-2 ${
+      className={`flex min-h-[84px] flex-1 flex-col justify-center rounded-xl border px-3 py-2.5 ${
         highlight
-          ? 'border-yellow-500/40 bg-yellow-500/5'
-          : 'border-zinc-800 bg-zinc-950/80'
+          ? 'border-yellow-500/40 bg-yellow-500/[0.06]'
+          : 'border-zinc-800 bg-zinc-950/60'
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium text-white">
+        <span className="text-[13px] font-medium text-[#e8e4d9]">
           {VENUE_LABEL[row.venue] ?? row.venue}
         </span>
-        {highlight && (
-          <span className="rounded bg-yellow-500/15 px-1.5 py-0.5 text-[10px] text-yellow-400">
-            Tightest
-          </span>
-        )}
+        {highlight && <span className="text-[11px] font-medium text-yellow-400">Tightest</span>}
       </div>
-      <div className="mt-1 text-lg font-semibold tabular-nums text-yellow-400/90">
+      <div
+        className={`mt-0.5 font-semibold tabular-nums text-xl ${
+          highlight ? 'text-yellow-400' : 'text-[#f5f1e6]'
+        }`}
+      >
         {formatBps(row.spread_bps)}
       </div>
-      <div className="mt-1 grid grid-cols-3 gap-1 text-[10px] text-gray-500">
-        <span>Bid {formatPrice(row.bid)}</span>
-        <span className="text-center">Mid {formatPrice(row.mid)}</span>
-        <span className="text-right">Ask {formatPrice(row.ask)}</span>
+      <div className="mt-2 grid grid-cols-3 gap-2">
+        <PriceCell label="Bid" value={formatPrice(row.bid)} />
+        <PriceCell label="Mid" value={formatPrice(row.mid)} align="center" />
+        <PriceCell label="Ask" value={formatPrice(row.ask)} align="right" />
       </div>
     </div>
   );

@@ -473,8 +473,15 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 overflow-visible pb-3">
               <div className="pointer-events-none overflow-visible">
                 <ConstructorBottomMenu
-                  onWidgetsToggle={() => setIsWidgetsOpen(!isWidgetsOpen)}
-                  onBrushToggle={() => setIsBrushActive((active) => !active)}
+                  onWidgetsToggle={() => {
+                    // Widgets palette and draw tools share the same spot above the bar: only one at a time.
+                    if (!isWidgetsOpen) setIsBrushActive(false);
+                    setIsWidgetsOpen(!isWidgetsOpen);
+                  }}
+                  onBrushToggle={() => {
+                    if (!isBrushActive) setIsWidgetsOpen(false);
+                    setIsBrushActive(!isBrushActive);
+                  }}
                   isBrushActive={isBrushActive}
                   drawToolMode={drawToolMode}
                   onDrawToolModeChange={setDrawToolMode}

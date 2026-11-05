@@ -16,12 +16,14 @@ export function Dropdown<T extends string>({
   onChange,
   title,
   prefix,
+  disabled,
 }: {
   value: T;
   options: DropdownOption<T>[];
   onChange: (next: T) => void;
   title: string;
   prefix?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState<DOMRect | null>(null);
@@ -72,8 +74,9 @@ export function Dropdown<T extends string>({
         title={title}
         aria-haspopup="listbox"
         aria-expanded={open}
+        disabled={disabled}
         onClick={toggle}
-        className={`inline-flex min-w-0 shrink items-center gap-2 rounded-xl border bg-zinc-950 px-3 py-1.5 text-[13px] font-medium text-[#e8e4d9] outline-none transition-colors ${
+        className={`inline-flex min-w-0 shrink items-center gap-2 rounded-xl border bg-zinc-950 px-3 py-1.5 text-[13px] font-medium text-[#e8e4d9] outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
           open ? 'border-yellow-500/60' : 'border-zinc-800 hover:border-zinc-700'
         } focus-visible:border-yellow-500/60`}
       >

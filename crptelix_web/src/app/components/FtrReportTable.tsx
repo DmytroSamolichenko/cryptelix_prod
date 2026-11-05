@@ -216,17 +216,109 @@ interface FtrMetricRowProps {
   onSpawn: () => void;
 }
 
+/** Short on-screen names. The full label stays the metric's key (and its tooltip). */
+const SHORT_LABEL: Record<string, string> = {
+  'Total Net Profit (Inc Commissions)': 'Net profit',
+  'Total Profit (Gross - Loss)': 'Profit before fees',
+  'Profit Factor': 'Profit factor',
+  'Percent Profitable': 'Win rate',
+  'Profit per Day': 'Per day',
+  'Profit per Week': 'Per week',
+  'Profit per Month': 'Per month',
+  'Avg Trade': 'Avg trade',
+  'Gross Profit': 'Gross profit',
+  'Largest Winning Trade': 'Best trade',
+  'Avg Winning Trade': 'Avg win',
+  'Max Consecutive Winners': 'Win streak',
+  'Gross Loss': 'Gross loss',
+  'Largest Losing Trade': 'Worst trade',
+  'Avg Losing Trade': 'Avg loss',
+  'Max Consecutive Losers': 'Loss streak',
+  'Max. Drawdown': 'Max drawdown',
+  'Max Drawdown (%)': 'Drawdown %',
+  'Total # Trades': 'Trades',
+  '# Winning Trades': 'Winners',
+  '# Losing Trades': 'Losers',
+  '# Trades/Day': 'Trades / day',
+  'Avg Win/Lose Trades': 'Win / loss ratio',
+  'Avg Time In Market': 'Avg hold time',
+  Commission: 'Fees',
+  'Avg MFE (Points)': 'MFE (pts)',
+  'Avg MFE (Percent)': 'MFE %',
+  'Avg MAE (Points)': 'MAE (pts)',
+  'Avg MAE (Percent)': 'MAE %',
+};
+
+type SectionTone = 'amber' | 'green' | 'red' | 'neutral';
+
+const SECTIONS: { title: string; tone: SectionTone; labels: string[] }[] = [
+  {
+    title: 'Performance',
+    tone: 'amber',
+    labels: [
+      'Total Net Profit (Inc Commissions)',
+      'Total Profit (Gross - Loss)',
+      'Profit Factor',
+      'Percent Profitable',
+    ],
+  },
+  {
+    title: 'Returns',
+    tone: 'neutral',
+    labels: ['Profit per Day', 'Profit per Week', 'Profit per Month', 'Avg Trade'],
+  },
+  {
+    title: 'Winning trades',
+    tone: 'green',
+    labels: ['Gross Profit', 'Largest Winning Trade', 'Avg Winning Trade', 'Max Consecutive Winners'],
+  },
+  {
+    title: 'Losing trades',
+    tone: 'red',
+    labels: ['Gross Loss', 'Largest Losing Trade', 'Avg Losing Trade', 'Max Consecutive Losers'],
+  },
+  { title: 'Drawdown', tone: 'red', labels: ['Max. Drawdown', 'Max Drawdown (%)'] },
+  {
+    title: 'Activity',
+    tone: 'neutral',
+    labels: [
+      'Total # Trades',
+      '# Winning Trades',
+      '# Losing Trades',
+      '# Trades/Day',
+      'Avg Win/Lose Trades',
+      'Avg Time In Market',
+      'Commission',
+    ],
+  },
+  {
+    title: 'Excursion',
+    tone: 'neutral',
+    labels: ['Avg MFE (Points)', 'Avg MFE (Percent)', 'Avg MAE (Points)', 'Avg MAE (Percent)'],
+  },
+];
+
+const TONE_TITLE: Record<SectionTone, string> = {
+  amber: 'text-yellow-400',
+  green: 'text-green-400/90',
+  red: 'text-red-400/90',
+  neutral: 'text-zinc-400',
+};
+
 function FtrMetricRow({ label, value, isPositive, isNegative, onSpawn }: FtrMetricRowProps) {
   const valueStr = typeof value === 'string' ? value : value.toString();
   const showTrend = isPositive || isNegative;
 
   return (
-    <div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded py-2 pl-2 pr-1 transition-colors hover:bg-white/5">
-      <span className="truncate text-sm text-gray-400">{label}</span>
-      <div className="flex shrink-0 items-center gap-1.5">
+    <div
+      title={label}
+      className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-[3px] transition-colors hover:bg-white/[0.04]"
+    >
+      <span className="truncate text-[12px] text-zinc-500">{SHORT_LABEL[label] ?? label}</span>
+      <div className="flex shrink-0 items-center gap-1">
         <span
-          className={`flex items-center gap-1 text-sm font-medium tabular-nums ${
-            isPositive ? 'text-green-400' : isNegative ? 'text-red-400' : 'text-white'
+          className={`flex items-center gap-1 text-[13px] font-semibold tabular-nums ${
+            isPositive ? 'text-green-400' : isNegative ? 'text-red-400' : 'text-[#e8e4d9]'
           }`}
         >
           {showTrend && (
@@ -243,8 +335,9 @@ function FtrMetricRow({ label, value, isPositive, isNegative, onSpawn }: FtrMetr
             e.stopPropagation();
             onSpawn();
           }}
-          className="rounded p-1 text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100"
-          title="Open as widget"
+          className="-mr-1 rounded p-0.5 text-zinc-600 opacity-0 transition-[opacity,color] hover:text-zinc-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/60 group-hover:opacity-100"
+          title={`Open ${SHORT_LABEL[label] ?? label} as a widget`}
+          aria-label={`Open ${SHORT_LABEL[label] ?? label} as a widget`}
         >
           <ExternalLink className="h-3.5 w-3.5" />
         </button>
@@ -339,20 +432,63 @@ export function FtrReportTable({ onExtractMetric }: FtrReportTableProps) {
 
   useTradesSynced(load);
 
+  if (rows.length === 0) {
+    return (
+      <div className="flex h-24 items-center justify-center text-xs text-zinc-500">
+        No report data yet
+      </div>
+    );
+  }
+
+  const byLabel = new Map(rows.map((r) => [r.label, r]));
+  // Anything a future backend adds but SECTIONS doesn't know about still shows up.
+  const placed = new Set(SECTIONS.flatMap((s) => s.labels));
+  const extras = rows.filter((r) => !placed.has(r.label)).map((r) => r.label);
+  const sections = extras.length
+    ? [...SECTIONS, { title: 'More', tone: 'neutral' as SectionTone, labels: extras }]
+    : SECTIONS;
+
   return (
-    <div className="space-y-0.5 pb-1">
-      {rows.map((row) => (
-        <FtrMetricRow
-          key={row.label}
-          label={row.label}
-          value={row.value}
-          isPositive={row.isPositive}
-          isNegative={row.isNegative}
-          onSpawn={() =>
-            onExtractMetric?.(row.label, row.value, row.isPositive, row.isNegative)
-          }
-        />
-      ))}
+    <div className="@container pb-1">
+      <div className="columns-1 gap-2 @min-[420px]:columns-2 @min-[640px]:columns-3">
+        {sections.map((section) => {
+          const items = section.labels
+            .map((l) => byLabel.get(l))
+            .filter((r): r is FtrReportRow => Boolean(r));
+          if (!items.length) return null;
+          return (
+            <section
+              key={section.title}
+              aria-label={section.title}
+              className={`mb-2 break-inside-avoid overflow-hidden rounded-xl border ${
+                section.tone === 'amber'
+                  ? 'border-yellow-900/50 bg-yellow-500/[0.04]'
+                  : 'border-zinc-800 bg-zinc-950/60'
+              }`}
+            >
+              <h4
+                className={`px-3 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase leading-4 tracking-wider ${TONE_TITLE[section.tone]}`}
+              >
+                {section.title}
+              </h4>
+              <div className="divide-y divide-zinc-900/80 pb-1">
+                {items.map((row) => (
+                  <FtrMetricRow
+                    key={row.label}
+                    label={row.label}
+                    value={row.value}
+                    isPositive={row.isPositive}
+                    isNegative={row.isNegative}
+                    onSpawn={() =>
+                      onExtractMetric?.(row.label, row.value, row.isPositive, row.isNegative)
+                    }
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
+      </div>
     </div>
   );
 }

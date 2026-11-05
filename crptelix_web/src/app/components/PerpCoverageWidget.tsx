@@ -169,17 +169,20 @@ export function PerpCoverageWidget({
     ? data.venues.filter((v) => Boolean(data.matrix?.[rowBase]?.[v])).length
     : 0;
 
+  const focusRing =
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/60';
+
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 p-1 text-xs text-gray-300">
+    <div className="flex h-full min-h-0 flex-col gap-2 p-1 text-xs text-zinc-300">
       <form
-        className="flex flex-wrap items-center gap-1.5"
+        className="flex flex-nowrap items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           runSearch();
         }}
       >
-        <div className="relative min-w-[8rem] flex-1">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
           <input
             type="text"
             value={queryDraft}
@@ -198,83 +201,101 @@ export function PerpCoverageWidget({
             spellCheck={false}
             autoCapitalize="characters"
             placeholder="BTC, SOL, TSLA…"
-            className="w-full rounded border border-zinc-700 bg-zinc-900 py-1.5 pl-7 pr-2 text-xs text-white outline-none placeholder:text-zinc-600 focus:border-yellow-500/50"
+            aria-label="Base symbol"
+            className="h-9 w-full rounded-xl border border-zinc-800 bg-zinc-950 pl-9 pr-3 text-[13px] text-[#e8e4d9] caret-yellow-400 outline-none transition-colors placeholder:text-zinc-500 hover:border-zinc-700 focus:border-yellow-500/60 focus:ring-2 focus:ring-yellow-500/15 selection:bg-yellow-400/25"
             title="Base symbol only (letters/digits)"
           />
         </div>
         <button
           type="submit"
-          className="inline-flex items-center gap-1 rounded border border-yellow-500/40 bg-yellow-500/10 px-2.5 py-1.5 text-xs font-medium text-yellow-400 hover:bg-yellow-500/20"
+          className={`h-9 shrink-0 rounded-xl bg-yellow-400 px-4 text-[13px] font-semibold text-zinc-950 transition-colors hover:bg-yellow-300 ${focusRing}`}
         >
           Check
         </button>
         <button
           type="button"
           onClick={() => void load(symbol, venues)}
-          className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-gray-400 hover:border-zinc-500 hover:text-white"
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white ${focusRing}`}
           title="Refresh"
+          aria-label="Refresh"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </form>
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[10px] uppercase tracking-wide text-gray-500">Venues</span>
-        {ALL_VENUES.map((v) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => toggleVenue(v)}
-            className={`rounded px-1.5 py-0.5 text-[10px] ${
-              venues.includes(v)
-                ? 'bg-yellow-500/15 text-yellow-400'
-                : 'bg-zinc-900 text-gray-500 hover:bg-zinc-800'
-            }`}
-          >
-            {VENUE_LABEL[v]}
-          </button>
-        ))}
+      <div className="flex flex-nowrap items-center gap-2 overflow-x-auto [scrollbar-width:none]">
+        <span className="shrink-0 text-[11px] uppercase tracking-wider text-zinc-600">Venues</span>
+        <div
+          className="inline-flex shrink-0 gap-0.5 rounded-xl border border-zinc-800 bg-zinc-950 p-0.5"
+          role="group"
+          aria-label="Venues"
+        >
+          {ALL_VENUES.map((v) => {
+            const on = venues.includes(v);
+            return (
+              <button
+                key={v}
+                type="button"
+                onClick={() => toggleVenue(v)}
+                aria-pressed={on}
+                className={`rounded-[10px] px-2.5 py-1 text-xs transition-colors ${
+                  on
+                    ? 'bg-yellow-400/15 font-medium text-yellow-400'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                {VENUE_LABEL[v]}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
         {error && (
-          <div className="rounded border border-red-500/30 bg-red-500/10 px-2 py-2 text-[11px] text-red-300">
+          <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-300">
             {error}
           </div>
         )}
 
         {!error && data && (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-baseline justify-between gap-2 px-0.5">
-              <span className="text-sm font-semibold text-white">{rowBase}</span>
-              <span className="text-[10px] text-gray-500">
+          <div className="flex min-h-full flex-col gap-2">
+            <div className="flex items-center justify-between gap-2 px-0.5">
+              <span className="text-lg font-semibold leading-6 text-[#f5f1e6]">{rowBase}</span>
+              <span
+                className={`rounded-md border px-2 py-0.5 text-[11px] font-medium tabular-nums ${
+                  listedCount > 0
+                    ? 'border-green-500/30 text-green-400'
+                    : 'border-zinc-800 text-zinc-500'
+                }`}
+              >
                 Listed on {listedCount}/{data.venues.length} venues
               </span>
             </div>
 
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-1 flex-col gap-2">
               {data.venues.map((v) => {
                 const ok = Boolean(data.matrix?.[rowBase]?.[v]);
                 return (
                   <div
                     key={v}
-                    className={`flex items-center justify-between rounded border px-2.5 py-2 ${
+                    className={`flex min-h-[48px] flex-1 items-center justify-between gap-3 rounded-xl border px-3 py-2 ${
                       ok
-                        ? 'border-emerald-500/30 bg-emerald-500/5'
-                        : 'border-zinc-800 bg-zinc-950/80'
+                        ? 'border-green-500/30 bg-green-500/[0.05] shadow-[0_6px_20px_-8px_rgba(34,197,94,0.45)]'
+                        : 'border-zinc-800 bg-zinc-950/60'
                     }`}
                   >
-                    <span className="text-[11px] font-medium text-white">
+                    <span className="text-[13px] font-medium text-[#e8e4d9]">
                       {VENUE_LABEL[v] ?? v}
                     </span>
                     {ok ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400">
-                        <Check className="h-3.5 w-3.5" />
+                      <span className="inline-flex items-center gap-1.5 rounded-md border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-400">
+                        <Check className="h-3.5 w-3.5" aria-hidden />
                         Listed
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
-                        <X className="h-3.5 w-3.5" />
+                      <span className="inline-flex items-center gap-1.5 rounded-md border border-zinc-800 px-2 py-0.5 text-xs text-zinc-500">
+                        <X className="h-3.5 w-3.5" aria-hidden />
                         Not listed
                       </span>
                     )}
@@ -286,21 +307,21 @@ export function PerpCoverageWidget({
         )}
 
         {!error && loading && !data && (
-          <div className="flex h-24 items-center justify-center text-gray-500">Checking…</div>
+          <div className="flex h-24 items-center justify-center text-zinc-500">Checking…</div>
         )}
 
         {data?.errors &&
           Object.entries(data.errors).map(([v, msg]) => (
             <div
               key={v}
-              className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-200"
+              className="mt-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200"
             >
               {VENUE_LABEL[v as CoverageVenue] ?? v}: {msg}
             </div>
           ))}
       </div>
 
-      <p className="border-t border-zinc-800 pt-1.5 text-[10px] leading-snug text-gray-600">
+      <p className="border-t border-zinc-900 pt-1.5 text-[11px] leading-snug text-zinc-600">
         Type any base · public market lists · educational
         {data?.fetched_at ? ` · ${new Date(data.fetched_at).toLocaleTimeString()}` : ''}
       </p>

@@ -102,7 +102,7 @@ export function TopBar({
     <>
       <div className="flex h-12 shrink-0 items-center border-b border-zinc-900/80 bg-black px-2 sm:px-3">
         <div className="flex shrink-0 items-center self-center">
-          <CryptelixLogo />
+          <CryptelixLogo showAlpha={false} />
         </div>
 
         <div className="scrollbar-hidden ml-auto flex min-w-0 flex-1 items-center justify-end gap-1 overflow-x-auto sm:gap-2">
