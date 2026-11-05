@@ -325,6 +325,8 @@ export function PortfolioMixWidget() {
   const w = box.w;
   const h = box.h;
   const dense = (w > 0 && w < 436) || (h > 0 && h < 312);
+  // Too narrow for donut and legend side by side: stack them.
+  const stacked = w > 0 && w < 340;
   const shortNames = w > 0 && w < 576;
   const pad = dense ? 'px-3 pb-2.5 pr-8 pt-2.5' : 'px-4 pb-3 pr-9 pt-3.5';
   const rowPad = dense ? 'py-1.5' : 'py-2.5';
@@ -363,8 +365,8 @@ export function PortfolioMixWidget() {
         </div>
       </div>
 
-      <div className={'flex min-h-0 flex-1 items-center overflow-hidden ' + (dense ? 'gap-2' : 'gap-3')}>
-        <div className="flex h-full min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden">
+      <div className={'flex min-h-0 flex-1 overflow-hidden ' + (stacked ? 'flex-col items-stretch ' : 'items-center ') + (dense ? 'gap-2' : 'gap-3')}>
+        <div className={'flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden ' + (stacked ? 'w-full' : 'h-full')}>
           <MixDonut
             slices={slices}
             total={total}
@@ -374,7 +376,7 @@ export function PortfolioMixWidget() {
           />
         </div>
 
-        <div className="flex max-h-full min-h-0 w-[44%] min-w-0 shrink-0 items-center overflow-hidden">
+        <div className={'flex min-h-0 min-w-0 shrink-0 items-center overflow-hidden ' + (stacked ? 'max-h-[55%] w-full' : 'max-h-full w-[44%]')}>
           <div className="flex max-h-full min-h-0 w-full flex-col overflow-y-auto rounded-2xl border border-yellow-900/35 bg-zinc-950/50 px-3">
             {slices.length === 0 ? (
               <div className="py-4 text-center text-[12px] text-zinc-500">No trade volume yet</div>

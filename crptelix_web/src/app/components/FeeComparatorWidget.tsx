@@ -155,7 +155,7 @@ export function FeeComparatorWidget({
     return Math.max(...data.rows.map((r) => r.fee_usd), 0.01);
   }, [data]);
 
-  const segWrap = 'inline-flex shrink-0 gap-0.5 rounded-xl border border-zinc-800 bg-zinc-950 p-0.5';
+  const segWrap = 'inline-flex max-w-full flex-wrap gap-0.5 rounded-xl border border-zinc-800 bg-zinc-950 p-0.5';
   const chipBtn = (active: boolean) =>
     `rounded-[10px] px-2.5 py-1 text-xs transition-colors ${
       active ? 'bg-yellow-400 font-medium text-zinc-950' : 'text-zinc-500 hover:text-zinc-300'
@@ -164,9 +164,9 @@ export function FeeComparatorWidget({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 p-1 text-xs text-zinc-300">
-      <div className="flex flex-nowrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <div
-          className="flex min-w-0 flex-nowrap gap-0.5 overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-950 p-0.5 [scrollbar-width:none]"
+          className="flex max-w-full flex-wrap gap-0.5 rounded-xl border border-zinc-800 bg-zinc-950 p-0.5"
           role="group"
           aria-label="Venues"
         >
@@ -200,7 +200,7 @@ export function FeeComparatorWidget({
         </button>
       </div>
 
-      <div className="flex flex-nowrap items-center gap-2 overflow-x-auto [scrollbar-width:none]">
+      <div className="flex flex-wrap items-center gap-2">
         <span className={labelCls}>Notional</span>
         <div className={segWrap} role="group" aria-label="Notional">
           {NOTIONALS.map((n) => (

@@ -240,7 +240,7 @@ export function PortfolioWidget() {
         </div>
       ) : (
         <>
-          <div className="flex shrink-0 items-end justify-between gap-2">
+          <div className="flex shrink-0 flex-wrap items-end justify-between gap-x-3 gap-y-2">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="truncate text-2xl font-semibold tabular-nums text-[#f5f1e6]">
@@ -263,7 +263,7 @@ export function PortfolioWidget() {
               </div>
             </div>
             <div
-              className="inline-flex shrink-0 gap-0.5 rounded-xl border border-zinc-800 bg-zinc-950 p-0.5"
+              className="inline-flex max-w-full flex-wrap gap-0.5 rounded-xl border border-zinc-800 bg-zinc-950 p-0.5"
               role="group"
               aria-label="Time period"
             >

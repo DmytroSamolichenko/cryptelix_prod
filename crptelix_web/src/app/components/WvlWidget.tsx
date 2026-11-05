@@ -248,7 +248,7 @@ export function WvlWidget() {
       ref={rootRef}
       className="flex h-full min-h-0 w-full min-w-0 flex-col gap-4 bg-[#0c0c0c] px-4 pb-3 pr-9 pt-4 text-[#e8e4d9] [contain:layout]"
     >
-      <div className="widget-drag-handle flex shrink-0 items-start justify-between gap-3">
+      <div className="widget-drag-handle flex shrink-0 flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div className="min-w-0">
           <h3 className="truncate text-[17px] font-medium leading-tight text-yellow-500">
             Wins vs losses

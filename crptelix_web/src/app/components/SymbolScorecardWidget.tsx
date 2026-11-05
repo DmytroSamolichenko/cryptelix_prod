@@ -60,11 +60,11 @@ export function SymbolScorecardWidget() {
   const netColor = (n: number) => (n > 0 ? WIN : n < 0 ? LOSS : NEUTRAL);
   const wrColor = (wr: number) => (wr >= 50 ? '#34d399' : wr >= 30 ? '#fbbf24' : '#fb7185');
   const gridCols =
-    'grid grid-cols-[minmax(0,1.1fr)_minmax(0,1.5fr)_minmax(0,0.9fr)_3.25rem] items-center gap-3';
+    'grid grid-cols-[minmax(0,1fr)_auto_3.25rem] items-center gap-3 @min-[300px]:grid-cols-[minmax(0,1.1fr)_minmax(0,1.5fr)_minmax(0,0.9fr)_3.25rem]';
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col gap-1.5 overflow-hidden bg-[#0c0c0c] px-3 pb-2.5 pr-9 pt-3 text-[#e8e4d9] [contain:layout]">
-      <div className="flex shrink-0 items-center justify-between gap-2">
+    <div className="@container flex h-full min-h-0 w-full min-w-0 flex-col gap-1.5 overflow-hidden bg-[#0c0c0c] px-3 pb-2.5 pr-9 pt-3 text-[#e8e4d9] [contain:layout]">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <h3 className="widget-drag-handle min-w-0 truncate text-[17px] font-medium leading-tight text-yellow-500">
           Symbol Scorecard
         </h3>
@@ -95,7 +95,7 @@ export function SymbolScorecardWidget() {
             className={`${gridCols} sticky top-0 z-10 bg-[#0c0c0c] px-3 pb-0.5 text-[11px] uppercase tracking-wider text-zinc-500`}
           >
             <span>Pair</span>
-            <span>Win rate</span>
+            <span className="hidden @min-[300px]:block">Win rate</span>
             <span className="text-right">Net</span>
             <span className="text-right">R</span>
           </div>
@@ -110,11 +110,12 @@ export function SymbolScorecardWidget() {
             >
               <div className="min-w-0">
                 <div className="truncate text-[13px] font-medium text-[#e8e4d9]">{r.pair}</div>
-                <div className="text-[11px] text-zinc-500">
+                <div className="truncate text-[11px] text-zinc-500">
                   {r.n} {r.n === 1 ? 'trade' : 'trades'}
+                  <span className="@min-[300px]:hidden"> · {r.winRate.toFixed(0)}% win</span>
                 </div>
               </div>
-              <div>
+              <div className="hidden @min-[300px]:block">
                 <div className="text-[12px] font-medium tabular-nums text-[#e8e4d9]">
                   {r.winRate.toFixed(0)}%
                 </div>

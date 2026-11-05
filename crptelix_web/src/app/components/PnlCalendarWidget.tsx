@@ -74,7 +74,7 @@ export function PnlCalendarWidget() {
         (dense ? 'gap-1.5 px-3 pb-2 pt-3' : 'gap-2 px-4 pb-3 pt-3.5')
       }
     >
-      <div className="flex shrink-0 items-center justify-between gap-2">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-2">
         <h3 className="widget-drag-handle min-w-0 truncate text-[17px] font-medium leading-tight text-yellow-500">
           PnL Calendar
         </h3>

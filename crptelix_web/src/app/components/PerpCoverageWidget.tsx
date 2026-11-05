@@ -175,13 +175,13 @@ export function PerpCoverageWidget({
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 p-1 text-xs text-zinc-300">
       <form
-        className="flex flex-nowrap items-center gap-2"
+        className="flex flex-wrap items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           runSearch();
         }}
       >
-        <div className="relative min-w-0 flex-1">
+        <div className="relative min-w-[9rem] flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
           <input
             type="text"
@@ -223,10 +223,10 @@ export function PerpCoverageWidget({
         </button>
       </form>
 
-      <div className="flex flex-nowrap items-center gap-2 overflow-x-auto [scrollbar-width:none]">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="shrink-0 text-[11px] uppercase tracking-wider text-zinc-600">Venues</span>
         <div
-          className="inline-flex shrink-0 gap-0.5 rounded-xl border border-zinc-800 bg-zinc-950 p-0.5"
+          className="inline-flex max-w-full flex-wrap gap-0.5 rounded-xl border border-zinc-800 bg-zinc-950 p-0.5"
           role="group"
           aria-label="Venues"
         >

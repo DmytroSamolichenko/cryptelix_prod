@@ -147,6 +147,7 @@ export function KeyMetricsCards() {
   const maxDd = stats?.max_drawdown ?? 0;
   const maxDdPct = stats?.max_drawdown_percent ?? 0;
   const compact = box.w > 0 && box.w < 520;
+  const narrow = box.w > 0 && box.w < 230;
   const empty = !stats;
   const pfDisplay =
     stats?.profit_factor != null && Number.isFinite(stats.profit_factor)
@@ -162,7 +163,7 @@ export function KeyMetricsCards() {
       ref={rootRef}
       className="flex h-full min-h-0 w-full min-w-0 flex-col gap-3 bg-[#0c0c0c] px-4 pb-3 pr-9 pt-4 text-[#e8e4d9] [contain:layout]"
     >
-      <div className="flex shrink-0 items-center justify-between gap-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <h3 className="widget-drag-handle min-w-0 truncate text-[17px] font-medium leading-tight text-yellow-500">
           Key Metrics
         </h3>
@@ -191,7 +192,7 @@ export function KeyMetricsCards() {
 
       <div
         className={
-          'grid shrink-0 gap-2 ' + (compact ? 'grid-cols-2' : 'grid-cols-3')
+          'grid shrink-0 gap-2 ' + (narrow ? 'grid-cols-1' : compact ? 'grid-cols-2' : 'grid-cols-3')
         }
       >
         <MetricCard
