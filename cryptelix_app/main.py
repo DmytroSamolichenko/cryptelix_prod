@@ -90,6 +90,20 @@ from venue_price_impact_service import (
     VenuePriceImpactError,
     calculate_position_impact,
 )
+from venue_markets_service import (
+    VenueMarketsError,
+    get_markets_coverage,
+    get_venue_markets,
+)
+from venue_spread_service import (
+    VenueSpreadError,
+    compare_venue_spreads,
+    get_venue_spread,
+)
+from venue_fees_service import (
+    VenueFeesError,
+    compare_venue_fees,
+)
 from constructor_board_service import (
     ConstructorBoardError,
     get_board as get_constructor_board,
@@ -523,7 +537,10 @@ async def get_market_ticker(
 
 @app.get("/api/v1/venue/funding")
 async def get_venue_funding_endpoint(
-    venue: str = Query("binance", description="binance | phoenix"),
+    venue: str = Query(
+        "binance",
+        description="binance | phoenix | backpack | pacifica",
+    ),
     symbol: str = Query("BTC", description="Base or pair, e.g. BTC or BTCUSDT"),
     notional: float = Query(10_000, ge=1, le=10_000_000),
     position_side: str = Query("long", description="long | short"),
@@ -613,6 +630,102 @@ async def get_venue_price_impact_endpoint(
             leverage=leverage,
         )
     except VenuePriceImpactError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/venue/markets")
+async def get_venue_markets_endpoint(
+    venue: str = Query("phoenix", description="phoenix | backpack | pacifica"),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """List perpetual markets for a venue (cached ~10m)."""
+    try:
+        return await run_in_threadpool(get_venue_markets, venue)
+    except VenueMarketsError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/venue/markets/coverage")
+async def get_markets_coverage_endpoint(
+    bases: str = Query(
+        "BTC,ETH,SOL",
+        max_length=200,
+        description="Comma-separated base symbols (A-Z0-9, max 12)",
+    ),
+    venues: str = Query(
+        "phoenix,backpack,pacifica",
+        max_length=80,
+        description="Comma-separated venues",
+    ),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Matrix of whether each base is listed on each venue."""
+    base_list = [p.strip() for p in (bases or "").split(",") if p.strip()]
+    venue_list = [p.strip() for p in (venues or "").split(",") if p.strip()]
+    try:
+        return await run_in_threadpool(
+            get_markets_coverage,
+            bases=base_list,
+            venues=venue_list or None,
+        )
+    except VenueMarketsError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/venue/spread")
+async def get_venue_spread_endpoint(
+    venue: str = Query("phoenix", description="phoenix | backpack | pacifica"),
+    symbol: str = Query("SOL"),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Touch L2 spread for a symbol on one venue."""
+    try:
+        return await run_in_threadpool(get_venue_spread, venue, symbol)
+    except VenueSpreadError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/venue/spread/compare")
+async def compare_venue_spread_endpoint(
+    symbol: str = Query("SOL"),
+    venues: str = Query(
+        "phoenix,backpack,pacifica",
+        description="Comma-separated venues",
+    ),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Compare touch spreads across venues."""
+    venue_list = [p.strip() for p in (venues or "").split(",") if p.strip()]
+    try:
+        return await run_in_threadpool(
+            compare_venue_spreads,
+            symbol,
+            venue_list or None,
+        )
+    except VenueSpreadError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/venue/fees/compare")
+async def compare_venue_fees_endpoint(
+    venues: str = Query(
+        "phoenix,backpack,pacifica,binance",
+        description="Comma-separated venues",
+    ),
+    notional: float = Query(10_000, gt=0, le=10_000_000),
+    side: str = Query("taker", description="maker | taker | round_trip"),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Compare perp maker/taker fee cost for a notional."""
+    venue_list = [p.strip() for p in (venues or "").split(",") if p.strip()]
+    try:
+        return await run_in_threadpool(
+            compare_venue_fees,
+            venues=venue_list or None,
+            notional=notional,
+            side=side,
+        )
+    except VenueFeesError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 

@@ -65,7 +65,10 @@ function widgetBodyClass(type: Widget['type']): string {
     type === 'symbol-scorecard' ||
     type === 'session-heatmap' ||
     type === 'funding-rates' ||
-    type === 'position-impact'
+    type === 'position-impact' ||
+    type === 'perp-coverage' ||
+    type === 'venue-spread' ||
+    type === 'fee-comparator'
   ) {
     return 'min-h-0 min-w-0 flex-1 overflow-hidden';
   }
@@ -81,6 +84,9 @@ function displayWidgetTitle(widget: Widget): string {
   if (widget.type === 'session-heatmap') return 'Session Heatmap';
   if (widget.type === 'funding-rates') return 'Funding Rates';
   if (widget.type === 'position-impact') return 'Position Impact';
+  if (widget.type === 'perp-coverage') return 'Perp Coverage';
+  if (widget.type === 'venue-spread') return 'Spread';
+  if (widget.type === 'fee-comparator') return 'Fee Comparator';
   return widget.title;
 }
 

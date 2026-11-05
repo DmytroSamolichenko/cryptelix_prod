@@ -1,4 +1,4 @@
-import { LayoutGrid, Paintbrush, Type, Plus, LineChart, BarChart3, AreaChart, PieChart, Zap, Table, Wallet, Calendar, ListOrdered, Clock, Percent, Calculator, X, Pencil } from 'lucide-react';
+import { LayoutGrid, Paintbrush, Type, Plus, LineChart, BarChart3, AreaChart, PieChart, Zap, Table, Wallet, Calendar, ListOrdered, Clock, Percent, Calculator, GitCompareArrows, Layers, BadgeDollarSign, X, Pencil } from 'lucide-react';
 import { WidgetType } from './DashboardWidget';
 import { motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
@@ -143,6 +143,26 @@ export function ConstructorBottomMenu({
       label: 'Position Impact',
       description:
         'L2 slippage and book-impact estimate for margin × leverage on Phoenix (snapshot calculator).',
+    },
+    {
+      type: 'perp-coverage' as WidgetType,
+      icon: Layers,
+      label: 'Perp Coverage',
+      description:
+        'Look up any base symbol and see if it trades as a perp on Phoenix, Backpack, or Pacifica.',
+    },
+    {
+      type: 'venue-spread' as WidgetType,
+      icon: GitCompareArrows,
+      label: 'Spread',
+      description: 'Touch L2 spread (bps) on Phoenix, Backpack, and Pacifica.',
+    },
+    {
+      type: 'fee-comparator' as WidgetType,
+      icon: BadgeDollarSign,
+      label: 'Fee Comparator',
+      description:
+        'Compare perp maker/taker fee cost across Phoenix, Backpack, Pacifica, and Binance.',
     },
   ];
 

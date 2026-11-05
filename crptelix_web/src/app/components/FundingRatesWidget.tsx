@@ -4,8 +4,10 @@ import { RefreshCw } from 'lucide-react';
 import { apiFetch } from '../lib/apiClient';
 import { Dropdown, type DropdownOption } from './WidgetDropdown';
 
-type VenueId = 'binance' | 'phoenix';
+type VenueId = 'binance' | 'phoenix' | 'backpack' | 'pacifica';
 type PositionSide = 'long' | 'short';
+
+const ALL_VENUES: VenueId[] = ['binance', 'phoenix', 'backpack', 'pacifica'];
 
 /** UI prefs only — never store live balances / market payloads here. */
 export type FundingRatesPrefs = {
@@ -54,6 +56,8 @@ const NOTIONALS = [1_000, 10_000, 50_000] as const;
 const VENUE_LABEL: Record<VenueId, string> = {
   binance: 'Binance',
   phoenix: 'Phoenix',
+  backpack: 'Backpack',
+  pacifica: 'Pacifica',
 };
 
 const DEFAULT_PREFS: FundingRatesPrefs = {
@@ -66,7 +70,14 @@ const DEFAULT_PREFS: FundingRatesPrefs = {
 };
 
 function isVenueId(v: unknown): v is VenueId {
-  return v === 'binance' || v === 'phoenix';
+  return (
+    v === 'binance' || v === 'phoenix' || v === 'backpack' || v === 'pacifica'
+  );
+}
+
+function otherVenue(primary: VenueId, preferred?: VenueId): VenueId {
+  if (preferred && preferred !== primary && isVenueId(preferred)) return preferred;
+  return ALL_VENUES.find((v) => v !== primary) ?? 'phoenix';
 }
 
 function isPositionSide(v: unknown): v is PositionSide {
@@ -80,10 +91,10 @@ export function parseFundingRatesPrefs(raw: unknown): FundingRatesPrefs {
     ? symbolRaw
     : DEFAULT_PREFS.symbol;
   const venue = isVenueId(d.venue) ? d.venue : DEFAULT_PREFS.venue;
-  let compareVenue = isVenueId(d.compareVenue) ? d.compareVenue : DEFAULT_PREFS.compareVenue;
-  if (compareVenue === venue) {
-    compareVenue = venue === 'binance' ? 'phoenix' : 'binance';
-  }
+  const compareVenue = otherVenue(
+    venue,
+    isVenueId(d.compareVenue) ? d.compareVenue : DEFAULT_PREFS.compareVenue
+  );
   const notionalNum = Number(d.notional);
   const notional = (NOTIONALS as readonly number[]).includes(notionalNum)
     ? notionalNum
@@ -215,10 +226,18 @@ function VenueCard({
   );
 }
 
-const VENUE_OPTIONS: DropdownOption<VenueId>[] = [
-  { value: 'binance', label: 'Binance', hint: 'CEX' },
-  { value: 'phoenix', label: 'Phoenix', hint: 'DEX' },
-];
+const VENUE_HINT: Record<VenueId, string> = {
+  binance: 'CEX',
+  backpack: 'CEX',
+  phoenix: 'DEX',
+  pacifica: 'DEX',
+};
+
+const VENUE_OPTIONS: DropdownOption<VenueId>[] = ALL_VENUES.map((v) => ({
+  value: v,
+  label: VENUE_LABEL[v],
+  hint: VENUE_HINT[v],
+}));
 
 interface FundingRatesWidgetProps {
   initialData?: unknown;
@@ -244,24 +263,22 @@ export function FundingRatesWidget({
   const onPersistRef = useRef(onPersistPrefs);
   onPersistRef.current = onPersistPrefs;
 
-  const otherVenue: VenueId = venue === 'binance' ? 'phoenix' : 'binance';
-
   useEffect(() => {
     if (compareVenue === venue) {
-      setCompareVenue(otherVenue);
+      setCompareVenue(otherVenue(venue));
     }
-  }, [venue, compareVenue, otherVenue]);
+  }, [venue, compareVenue]);
 
   const prefs: FundingRatesPrefs = useMemo(
     () => ({
       symbol,
       venue,
       compareOn,
-      compareVenue: compareVenue === venue ? otherVenue : compareVenue,
+      compareVenue: otherVenue(venue, compareVenue),
       notional,
       positionSide: side,
     }),
-    [symbol, venue, compareOn, compareVenue, otherVenue, notional, side]
+    [symbol, venue, compareOn, compareVenue, notional, side]
   );
 
   useEffect(() => {

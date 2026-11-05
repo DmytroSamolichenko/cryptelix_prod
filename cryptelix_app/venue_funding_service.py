@@ -1,7 +1,7 @@
 """
 Normalize and compare perpetual funding across venues.
 
-Venue HTTP clients stay in binance_market_service / phoenix_market_service;
+Venue HTTP clients stay in dedicated *_market_service modules;
 this module only orchestrates snapshots and holding-cost math.
 """
 
@@ -9,12 +9,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from backpack_market_service import BackpackMarketError
+from backpack_market_service import get_funding_snapshot as backpack_funding_snapshot
 from binance_market_service import BinanceMarketError
 from binance_market_service import get_funding_snapshot as binance_funding_snapshot
+from pacifica_market_service import PacificaMarketError
+from pacifica_market_service import get_funding_snapshot as pacifica_funding_snapshot
 from phoenix_market_service import PhoenixMarketError
 from phoenix_market_service import get_funding_snapshot as phoenix_funding_snapshot
 
-SUPPORTED_VENUES = ("binance", "phoenix")
+SUPPORTED_VENUES = ("binance", "phoenix", "backpack", "pacifica")
 
 
 class VenueFundingError(Exception):
@@ -37,7 +41,6 @@ def _holding_cost_usd(
     side = (position_side or "long").strip().lower()
     if side not in ("long", "short"):
         side = "long"
-    # Long pays when rate > 0; short is opposite.
     signed = rate_per_24h if side == "long" else -rate_per_24h
     return notional * signed
 
@@ -65,6 +68,20 @@ def enrich_snapshot(
     return out
 
 
+def _fetch_raw_snapshot(venue: str, symbol: str) -> dict[str, Any]:
+    if venue == "binance":
+        return binance_funding_snapshot(symbol)
+    if venue == "phoenix":
+        return phoenix_funding_snapshot(symbol)
+    if venue == "backpack":
+        return backpack_funding_snapshot(symbol)
+    if venue == "pacifica":
+        return pacifica_funding_snapshot(symbol)
+    raise VenueFundingError(
+        f"Unsupported venue {venue!r}. Use: {', '.join(SUPPORTED_VENUES)}"
+    )
+
+
 def get_venue_funding(
     venue: str,
     symbol: str,
@@ -78,11 +95,13 @@ def get_venue_funding(
             f"Unsupported venue {venue!r}. Use: {', '.join(SUPPORTED_VENUES)}"
         )
     try:
-        if v == "binance":
-            snap = binance_funding_snapshot(symbol)
-        else:
-            snap = phoenix_funding_snapshot(symbol)
-    except (BinanceMarketError, PhoenixMarketError) as exc:
+        snap = _fetch_raw_snapshot(v, symbol)
+    except (
+        BinanceMarketError,
+        PhoenixMarketError,
+        BackpackMarketError,
+        PacificaMarketError,
+    ) as exc:
         raise VenueFundingError(str(exc)) from exc
     return enrich_snapshot(snap, notional=notional, position_side=position_side)
 
@@ -119,7 +138,6 @@ def compare_venue_funding(
             f"Could not fetch funding for any venue: {errors or 'unknown'}"
         )
 
-    # Cheapest for the selected side = lowest est_cost_24h_usd (most negative / least pay).
     ranked = [r for r in rows if r.get("est_cost_24h_usd") is not None]
     cheapest = None
     if ranked:
@@ -133,7 +151,7 @@ def compare_venue_funding(
         "cheapest_venue_24h": cheapest,
         "errors": errors or None,
         "disclaimer": (
-            "Funding models differ (e.g. Binance interval settle vs Phoenix hourly/24h). "
+            "Funding models differ by venue (interval / settle). "
             "24h estimates are normalized for comparison and are educational only."
         ),
     }

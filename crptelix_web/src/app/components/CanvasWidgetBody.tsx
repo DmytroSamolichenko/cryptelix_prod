@@ -12,6 +12,9 @@ import { SymbolScorecardWidget } from './SymbolScorecardWidget';
 import { SessionHeatmapWidget } from './SessionHeatmapWidget';
 import { FundingRatesWidget } from './FundingRatesWidget';
 import { PositionImpactWidget } from './PositionImpactWidget';
+import { PerpCoverageWidget } from './PerpCoverageWidget';
+import { SpreadWidget } from './SpreadWidget';
+import { FeeComparatorWidget } from './FeeComparatorWidget';
 
 interface CanvasWidgetBodyProps {
   widget: Widget;
@@ -83,6 +86,30 @@ export const CanvasWidgetBody = memo(function CanvasWidgetBody({
     case 'position-impact':
       return (
         <PositionImpactWidget
+          initialData={widget.data}
+          onPersistPrefs={(prefs) => onUpdateWidgetData?.(widget.id, prefs)}
+        />
+      );
+
+    case 'perp-coverage':
+      return (
+        <PerpCoverageWidget
+          initialData={widget.data}
+          onPersistPrefs={(prefs) => onUpdateWidgetData?.(widget.id, prefs)}
+        />
+      );
+
+    case 'venue-spread':
+      return (
+        <SpreadWidget
+          initialData={widget.data}
+          onPersistPrefs={(prefs) => onUpdateWidgetData?.(widget.id, prefs)}
+        />
+      );
+
+    case 'fee-comparator':
+      return (
+        <FeeComparatorWidget
           initialData={widget.data}
           onPersistPrefs={(prefs) => onUpdateWidgetData?.(widget.id, prefs)}
         />

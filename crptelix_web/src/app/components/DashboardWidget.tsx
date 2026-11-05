@@ -33,7 +33,10 @@ export type WidgetType =
   | 'symbol-scorecard'
   | 'session-heatmap'
   | 'funding-rates'
-  | 'position-impact';
+  | 'position-impact'
+  | 'perp-coverage'
+  | 'venue-spread'
+  | 'fee-comparator';
 
 export function widgetDefaultSize(type: WidgetType): { width: number; height: number } {
   switch (type) {
@@ -52,6 +55,12 @@ export function widgetDefaultSize(type: WidgetType): { width: number; height: nu
       return { width: 420, height: 400 };
     case 'position-impact':
       return { width: 440, height: 460 };
+    case 'perp-coverage':
+      return { width: 440, height: 360 };
+    case 'venue-spread':
+      return { width: 420, height: 360 };
+    case 'fee-comparator':
+      return { width: 420, height: 400 };
     case 'line-chart':
       return { width: 720, height: 480 };
     case 'bar-chart':
