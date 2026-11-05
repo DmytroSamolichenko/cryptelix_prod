@@ -14,25 +14,25 @@ type MixSlice = {
 const MARKET_ORDER = ['Futures COIN-M', 'Futures USDT-M', 'Spot'] as const;
 
 const MARKET_COLORS: Record<string, string> = {
-  'Futures COIN-M': '#D4A845',
-  'Futures USDT-M': '#3D8F54',
-  Spot: '#A8943A',
-  Futures: '#8B7AE8',
+  'Futures COIN-M': '#FBBF24',
+  'Futures USDT-M': '#34D399',
+  Spot: '#60A5FA',
+  Futures: '#A78BFA',
 };
 
 const ASSET_COLORS = [
-  '#D4A845',
-  '#3D8F54',
-  '#A8943A',
-  '#5B8DEF',
-  '#C084FC',
-  '#F97316',
-  '#14B8A6',
+  '#FBBF24',
+  '#34D399',
+  '#60A5FA',
+  '#F472B6',
+  '#A78BFA',
+  '#FB923C',
+  '#2DD4BF',
   '#94A3B8',
 ];
 
-const GOLD = '#D4A845';
-const RING_BG = '#1a1810';
+const GOLD = '#FBBF24';
+const RING_BG = '#12110c';
 
 function parseNum(raw: unknown): number {
   const n = Number(String(raw ?? '').replace(/,/g, ''));
@@ -73,126 +73,174 @@ function polar(cx: number, cy: number, r: number, angle: number): [number, numbe
   return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
 }
 
-function donutPath(
-  cx: number,
-  cy: number,
-  rInner: number,
-  rOuter: number,
-  start: number,
-  end: number
-): string {
-  const sweep = Math.max(0.2, end - start);
-  const large = sweep > 180 ? 1 : 0;
-  const [x1, y1] = polar(cx, cy, rOuter, start);
-  const [x2, y2] = polar(cx, cy, rOuter, start + sweep);
-  const [x3, y3] = polar(cx, cy, rInner, start + sweep);
-  const [x4, y4] = polar(cx, cy, rInner, start);
-  return [
-    `M ${x1.toFixed(2)} ${y1.toFixed(2)}`,
-    `A ${rOuter} ${rOuter} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`,
-    `L ${x3.toFixed(2)} ${y3.toFixed(2)}`,
-    `A ${rInner} ${rInner} 0 ${large} 0 ${x4.toFixed(2)} ${y4.toFixed(2)}`,
-    'Z',
-  ].join(' ');
+function lighten(hex: string, amt: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v: number) => Math.round(v + (255 - v) * amt);
+  return `rgb(${ch((n >> 16) & 255)}, ${ch((n >> 8) & 255)}, ${ch(n & 255)})`;
+}
+
+function arcPath(cx: number, cy: number, r: number, start: number, end: number): string {
+  const [x1, y1] = polar(cx, cy, r, start);
+  const [x2, y2] = polar(cx, cy, r, end);
+  const large = end - start > 180 ? 1 : 0;
+  return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
 }
 
 function MixDonut({
   slices,
   total,
   showSubtitle,
+  active,
+  onHover,
 }: {
   slices: MixSlice[];
   total: number;
   showSubtitle: boolean;
+  active: string | null;
+  onHover: (name: string | null) => void;
 }) {
-  const glowId = useId().replace(/:/g, '');
-  const glowUrl = 'url(#' + glowId + ')';
+  const uid = useId().replace(/:/g, '');
   const cx = 100;
   const cy = 100;
-  const rOuter = 78;
-  const rInner = 52;
+  const rMid = 82;
+  const thickness = 20;
+  // Round caps extend past each arc end by half the stroke, so pull the arc ends in by that angle.
+  const capDeg = (thickness / 2 / rMid) * (180 / Math.PI);
   const visible =
     total > 0 ? slices.filter((s) => Math.round((s.value / total) * 100) > 0) : [];
-  const gap = visible.length > 1 ? 7 : 0;
-  const n = Math.max(visible.length, 1);
-  const span = 360 - gap * n;
+  const multi = visible.length > 1;
+  const gap = multi ? 5 : 0;
+  const span = 360 - gap * Math.max(visible.length, 1);
   let cursor = gap / 2;
   const fullRing = visible.length === 1 ? visible[0] : null;
 
-  const arcs =
-    total > 0 && visible.length > 1
-      ? visible.map((s) => {
-          const sweep = Math.max(2.2, (s.value / total) * span);
-          const start = cursor;
-          cursor += sweep + gap;
-          return { ...s, start, end: start + sweep };
-        })
-      : [];
+  const arcs = multi
+    ? visible.map((s) => {
+        const sweep = Math.max(2.2, (s.value / total) * span);
+        const start = cursor;
+        cursor += sweep + gap;
+        let lo = start + capDeg;
+        let hi = start + sweep - capDeg;
+        if (hi - lo < 0.6) {
+          const mid = start + sweep / 2;
+          lo = mid - 0.3;
+          hi = mid + 0.3;
+        }
+        return { ...s, d: arcPath(cx, cy, rMid, lo, hi) };
+      })
+    : [];
 
   const top = total > 0 ? [...slices].sort((a, b) => b.value - a.value)[0] : null;
-  const topPct = top && total > 0 ? Math.round((top.value / total) * 100) : 0;
-  const holeName = top ? shortLabel(top.name) : '';
+  const focus = (active ? slices.find((s) => s.name === active) : null) ?? top;
+  const focusPct = focus && total > 0 ? Math.round((focus.value / total) * 100) : 0;
+  const focusName = focus ? shortLabel(focus.name) : '';
+  const gradId = (i: number) => `${uid}-g${i}`;
 
   return (
     <div className="relative aspect-square h-full max-h-full w-auto max-w-full">
-      <svg viewBox="0 0 200 200" className="h-full w-full overflow-hidden">
+      <svg
+        viewBox="0 0 200 200"
+        className="h-full w-full overflow-visible"
+        role="img"
+        aria-label={
+          total > 0
+            ? 'Volume mix: ' +
+              slices
+                .map((s) => `${s.name} ${Math.round((s.value / total) * 100)}%`)
+                .join(', ')
+            : 'Volume mix: no data'
+        }
+      >
         <defs>
-          <filter id={glowId} x="-18%" y="-18%" width="136%" height="136%">
-            <feGaussianBlur stdDeviation="1" result="blur" />
+          <filter
+            id={`${uid}-glow`}
+            filterUnits="userSpaceOnUse"
+            x="-20"
+            y="-20"
+            width="240"
+            height="240"
+          >
+            <feGaussianBlur stdDeviation="2.2" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+          {visible.map((s, i) => (
+            <linearGradient
+              key={s.name}
+              id={gradId(i)}
+              gradientUnits="userSpaceOnUse"
+              x1="30"
+              y1="10"
+              x2="170"
+              y2="190"
+            >
+              <stop offset="0%" stopColor={lighten(s.color, 0.28)} />
+              <stop offset="100%" stopColor={s.color} />
+            </linearGradient>
+          ))}
         </defs>
         <circle
           cx={cx}
           cy={cy}
-          r={(rOuter + rInner) / 2}
+          r={rMid}
           fill="none"
           stroke={RING_BG}
-          strokeWidth={rOuter - rInner + 2}
+          strokeWidth={thickness}
         />
         {fullRing ? (
           <circle
             cx={cx}
             cy={cy}
-            r={(rOuter + rInner) / 2}
+            r={rMid}
             fill="none"
-            stroke={fullRing.color}
-            strokeWidth={rOuter - rInner}
-            filter={fullRing.color === GOLD ? glowUrl : undefined}
+            stroke={`url(#${gradId(0)})`}
+            strokeWidth={thickness}
+            filter={`url(#${uid}-glow)`}
           />
         ) : null}
-        {arcs.map((arc) => (
-          <path
-            key={arc.name}
-            d={donutPath(cx, cy, rInner, rOuter, arc.start, arc.end)}
-            fill={arc.color}
-            filter={arc.color === GOLD ? glowUrl : undefined}
-          />
-        ))}
+        {arcs.map((arc, i) => {
+          const isActive = active === arc.name;
+          const dim = active != null && !isActive;
+          return (
+            <path
+              key={arc.name}
+              d={arc.d}
+              fill="none"
+              stroke={`url(#${gradId(i)})`}
+              strokeWidth={isActive ? thickness + 4 : thickness}
+              strokeLinecap="round"
+              opacity={dim ? 0.35 : 1}
+              filter={isActive || (active == null && arc.color === GOLD) ? `url(#${uid}-glow)` : undefined}
+              className="cursor-pointer transition-[stroke-width,opacity] duration-200 motion-reduce:transition-none"
+              onMouseEnter={() => onHover(arc.name)}
+              onMouseLeave={() => onHover(null)}
+            />
+          );
+        })}
         <text
           x="100"
-          y={showSubtitle && holeName ? '96' : '104'}
+          y={showSubtitle && focusName ? '99' : '108'}
           textAnchor="middle"
-          fill="#ffffff"
-          fontSize={showSubtitle ? 26 : 22}
+          fill="#f5f1e6"
+          fontSize={showSubtitle ? 34 : 28}
           fontWeight={600}
           fontFamily="system-ui, sans-serif"
         >
-          {top ? topPct + '%' : '—'}
+          {focus ? focusPct + '%' : '—'}
         </text>
-        {showSubtitle && holeName ? (
+        {showSubtitle && focusName ? (
           <text
             x="100"
-            y="116"
+            y="124"
             textAnchor="middle"
-            fill="#71717a"
-            fontSize="9"
+            fill="#a1a1aa"
+            fontSize="11"
+            letterSpacing="0.6"
             fontFamily="system-ui, sans-serif"
           >
-            {holeName}
+            {focusName.toUpperCase()}
           </text>
         ) : null}
       </svg>
@@ -204,7 +252,8 @@ export function PortfolioMixWidget() {
   const rootRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [mode, setMode] = useState<MixMode>('market');
-  const [trades, setTrades] = useState<Array<Record<string, unknown>>>([]);
+  const [active, setActive] = useState<string | null>(null);
+  const [trades,setTrades] = useState<Array<Record<string, unknown>>>([]);
 
   useEffect(() => {
     const el = rootRef.current;
@@ -277,14 +326,14 @@ export function PortfolioMixWidget() {
   const h = box.h;
   const dense = (w > 0 && w < 436) || (h > 0 && h < 312);
   const shortNames = w > 0 && w < 576;
-  const pad = dense ? 'px-3 pb-3 pr-8 pt-3' : 'px-5 pb-4 pr-9 pt-4';
-  const rowPad = dense ? 'py-1.5' : 'py-3';
+  const pad = dense ? 'px-3 pb-2.5 pr-8 pt-2.5' : 'px-4 pb-3 pr-9 pt-3.5';
+  const rowPad = dense ? 'py-1.5' : 'py-2.5';
   const rowText = dense ? 'text-[11px]' : 'text-[13px]';
 
   return (
     <div
       ref={rootRef}
-      className={'flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-[#0c0c0c] text-[#e8e4d9] [contain:layout] ' + pad + ' ' + (dense ? 'gap-2' : 'gap-3')}
+      className={'flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-[#0c0c0c] text-[#e8e4d9] [contain:layout] ' + pad + ' ' + (dense ? 'gap-1.5' : 'gap-2')}
     >
       <div className="relative z-10 flex shrink-0 items-center justify-between gap-2">
         <h3 className="widget-drag-handle shrink-0 whitespace-nowrap text-[17px] font-medium leading-tight text-yellow-500">
@@ -314,13 +363,19 @@ export function PortfolioMixWidget() {
         </div>
       </div>
 
-      <div className={'flex min-h-0 flex-1 items-stretch overflow-hidden ' + (dense ? 'gap-3' : 'gap-5')}>
-        <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden">
-          <MixDonut slices={slices} total={total} showSubtitle={!dense} />
+      <div className={'flex min-h-0 flex-1 items-center overflow-hidden ' + (dense ? 'gap-2' : 'gap-3')}>
+        <div className="flex h-full min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden">
+          <MixDonut
+            slices={slices}
+            total={total}
+            showSubtitle={!dense}
+            active={active}
+            onHover={setActive}
+          />
         </div>
 
-        <div className="flex min-h-0 w-[46%] min-w-0 shrink-0 items-stretch overflow-hidden">
-          <div className="flex h-full min-h-0 w-full flex-col justify-center overflow-y-auto rounded-2xl border border-yellow-900/35 bg-zinc-950/50 px-3">
+        <div className="flex max-h-full min-h-0 w-[44%] min-w-0 shrink-0 items-center overflow-hidden">
+          <div className="flex max-h-full min-h-0 w-full flex-col overflow-y-auto rounded-2xl border border-yellow-900/35 bg-zinc-950/50 px-3">
             {slices.length === 0 ? (
               <div className="py-4 text-center text-[12px] text-zinc-500">No trade volume yet</div>
             ) : (
@@ -330,29 +385,45 @@ export function PortfolioMixWidget() {
                 return (
                   <div
                     key={s.name}
+                    tabIndex={0}
+                    onMouseEnter={() => setActive(s.name)}
+                    onMouseLeave={() => setActive(null)}
+                    onFocus={() => setActive(s.name)}
+                    onBlur={() => setActive(null)}
                     className={
-                      'flex min-h-0 items-center gap-2 ' +
+                      'flex min-h-0 flex-col gap-1.5 outline-none transition-opacity duration-200 motion-reduce:transition-none ' +
                       rowPad +
-                      (i > 0 ? ' border-t border-zinc-800/90' : '')
+                      (i > 0 ? ' border-t border-zinc-800/90' : '') +
+                      (active != null && active !== s.name ? ' opacity-50' : '')
                     }
                   >
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: s.color }}
-                    />
-                    <span className={'min-w-0 flex-1 truncate font-medium text-zinc-100 ' + rowText}>
-                      {shortNames ? shortLabel(s.name) : s.name}
-                    </span>
-                    <span
-                      className={
-                        'shrink-0 font-semibold tabular-nums ' +
-                        rowText +
-                        ' ' +
-                        (hot ? 'text-yellow-500' : 'text-zinc-500')
-                      }
-                    >
-                      {Math.round(pct)}%
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: s.color, boxShadow: `0 0 8px ${s.color}66` }}
+                      />
+                      <span className={'min-w-0 flex-1 truncate font-medium text-zinc-100 ' + rowText}>
+                        {shortNames ? shortLabel(s.name) : s.name}
+                      </span>
+                      <span
+                        className={
+                          'shrink-0 font-semibold tabular-nums ' +
+                          rowText +
+                          ' ' +
+                          (hot ? 'text-yellow-500' : 'text-zinc-400')
+                        }
+                      >
+                        {Math.round(pct)}%
+                      </span>
+                    </div>
+                    {!dense && (
+                      <div className="h-[3px] w-full overflow-hidden rounded-full bg-zinc-800/80">
+                        <div
+                          className="h-full rounded-full transition-[width] duration-500 motion-reduce:transition-none"
+                          style={{ width: `${pct}%`, backgroundColor: s.color }}
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })

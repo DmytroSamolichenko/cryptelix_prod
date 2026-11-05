@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, FormEvent } from 'react';
-import { ArrowRight, Eye, EyeOff, Lock, Mail, Wallet } from 'lucide-react';
+import { AlertCircle, ArrowRight, Eye, EyeOff, Lock, Mail, Wallet } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CryptelixLogo } from '../CryptelixLogo';
 import { isValidEmail, type AuthSession } from '../../lib/authStorage';
@@ -9,6 +9,24 @@ import { REOWN_ENABLED, useConfiguredWalletSignIn } from '../../lib/walletSignIn
 
 type AuthStep = 'email' | 'password';
 type AuthMode = 'needs_activation' | 'needs_login';
+
+const FOCUS_RING =
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/60';
+
+// Autofill otherwise paints the browser's pale blue over the dark field.
+const INPUT_BASE =
+  'h-10 w-full rounded-lg border border-zinc-800 bg-zinc-950 text-[13px] text-white caret-yellow-400 outline-none transition-colors placeholder:text-zinc-500 hover:border-zinc-700 focus:border-yellow-500/60 focus:ring-2 focus:ring-yellow-500/15 disabled:opacity-60 selection:bg-yellow-400/25 [&:-webkit-autofill]:[-webkit-text-fill-color:#fff] [&:-webkit-autofill]:[box-shadow:inset_0_0_0_1000px_#09090b]';
+const LABEL = 'mb-1.5 block text-xs font-medium leading-none text-zinc-400';
+const PRIMARY_BTN = `flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-yellow-500 text-[13px] font-semibold text-black transition-colors hover:bg-yellow-400 disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`;
+
+function FormError({ message }: { message: string }) {
+  return (
+    <p role="alert" className="flex items-start gap-1.5 text-[13px] leading-snug text-red-400">
+      <AlertCircle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
+      {message}
+    </p>
+  );
+}
 
 interface LoginScreenProps {
   onSuccess: (session: AuthSession) => void;
@@ -37,8 +55,31 @@ function WalletContinueButton({
   resetTurnstile: () => void;
 }) {
   const { signIn } = useConfiguredWalletSignIn();
+  const [showNotice, setShowNotice] = useState(false);
+  const continueRef = useRef<HTMLButtonElement>(null);
+
+  // The recovery warning has to land before the wallet picker opens, so the click opens it first.
+  const requestWallet = () => {
+    if (TURNSTILE_ENABLED && !turnstileToken) {
+      setError('Please complete the verification below.');
+      return;
+    }
+    setError('');
+    setShowNotice(true);
+  };
+
+  useEffect(() => {
+    if (!showNotice) return;
+    continueRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowNotice(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [showNotice]);
 
   const handleWallet = async () => {
+    setShowNotice(false);
     if (TURNSTILE_ENABLED && !turnstileToken) {
       setError('Please complete the verification below.');
       return;
@@ -64,23 +105,60 @@ function WalletContinueButton({
           <div className="w-full border-t border-zinc-800" />
         </div>
         <div className="relative flex justify-center">
-          <span className="bg-zinc-900/90 px-3 text-[11px] uppercase tracking-wide text-zinc-500">
-            or
-          </span>
+          <span className="bg-zinc-900 px-3 text-xs text-zinc-500">or</span>
         </div>
       </div>
       <button
         type="button"
-        onClick={() => void handleWallet()}
+        onClick={requestWallet}
         disabled={isSubmitting}
-        className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-950 text-sm font-semibold text-white transition-colors hover:border-yellow-500/50 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
+        className={`flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 text-[13px] font-semibold text-white transition-colors hover:border-yellow-500/50 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`}
       >
-        <Wallet className="h-4 w-4 text-yellow-400" />
+        <Wallet className="h-4 w-4 text-yellow-400" aria-hidden />
         Continue with wallet
       </button>
-      <p className="mt-2 text-center text-[11px] leading-relaxed text-zinc-500">
-        If you lose this wallet, you cannot recover the account unless you later add an email.
-      </p>
+
+      <AnimatePresence>
+        {showNotice && (
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wallet-notice-title"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="absolute inset-0 z-20 flex items-center justify-center rounded-3xl bg-zinc-950/95 p-8 backdrop-blur-sm"
+          >
+            <div className="w-full text-center">
+              <h3 id="wallet-notice-title" className="font-sans text-base font-semibold text-white">
+                Before you connect
+              </h3>
+              <p className="mx-auto mt-2 max-w-[300px] text-[13px] leading-5 text-zinc-400 text-balance">
+                If you lose this wallet, you cannot recover the account unless you later add an
+                email.
+              </p>
+              <div className="mt-5 grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowNotice(false)}
+                  className={`h-10 rounded-lg border border-zinc-800 text-[13px] font-semibold text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white ${FOCUS_RING}`}
+                >
+                  Cancel
+                </button>
+                <button
+                  ref={continueRef}
+                  type="button"
+                  onClick={() => void handleWallet()}
+                  className={`h-10 rounded-lg bg-yellow-500 text-[13px] font-semibold text-black transition-colors hover:bg-yellow-400 ${FOCUS_RING}`}
+                >
+                  I understand
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }
@@ -324,10 +402,11 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
           </p>
         </div>
 
-        <div className="rounded-3xl border border-zinc-800/90 bg-zinc-900/90 p-8 shadow-2xl shadow-black/50 backdrop-blur-sm sm:p-9">
+        <div className="relative rounded-3xl border border-zinc-800/90 bg-zinc-900/90 p-8 font-['Inter',ui-sans-serif,system-ui,sans-serif] shadow-2xl shadow-black/50 backdrop-blur-sm sm:p-9">
           <div className="mb-7 text-center">
-            <h2 className="text-[28px] font-bold tracking-tight text-white">Sign In</h2>
-            <p className="mt-3 text-sm text-zinc-400">
+            {/* Kept exactly as designed: pinned to the app's default sans so the card font doesn't change it. */}
+            <h2 className="font-sans text-[28px] font-bold tracking-tight text-white">Sign In</h2>
+            <p className="mt-2 text-[13px] leading-5 text-zinc-400 text-balance">
               {step === 'email'
                 ? 'Enter your invited email to continue.'
                 : isActivate
@@ -337,13 +416,20 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
           </div>
 
           {step === 'email' ? (
-            <form onSubmit={handleEmailStep} className="space-y-4">
+            <motion.form
+              key="email-step"
+              onSubmit={handleEmailStep}
+              className="space-y-4"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            >
               <div>
-                <label htmlFor="login-email" className="mb-1.5 block text-xs font-medium text-zinc-400">
+                <label htmlFor="login-email" className={LABEL}>
                   Email address
                 </label>
                 <div className="relative">
-                  <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                  <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
                   <input
                     ref={inputRef}
                     id="login-email"
@@ -356,18 +442,17 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                       if (error) setError('');
                     }}
                     disabled={isSubmitting}
-                    className="h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 pl-10 pr-3 text-sm text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/15 disabled:opacity-60"
+                    className={`${INPUT_BASE} pl-10 pr-3`}
                   />
                 </div>
               </div>
 
-              {error && <p className="text-xs text-red-400">{error}</p>}
+              {error && <FormError message={error} />}
 
               <motion.button
                 type="submit"
                 disabled={isSubmitting || !email.trim()}
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-yellow-500 text-sm font-semibold text-black transition-colors hover:bg-yellow-400 disabled:cursor-not-allowed disabled:opacity-50"
-                whileHover={isSubmitting ? undefined : { scale: 1.01 }}
+                className={PRIMARY_BTN}
                 whileTap={isSubmitting ? undefined : { scale: 0.98 }}
               >
                 {isSubmitting ? (
@@ -385,6 +470,14 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
 
               {REOWN_ENABLED ? (
                 <>
+                  <WalletContinueButton
+                    onSuccess={onSuccess}
+                    setError={setError}
+                    isSubmitting={isSubmitting}
+                    setIsSubmitting={setIsSubmitting}
+                    turnstileToken={turnstileToken}
+                    resetTurnstile={resetTurnstile}
+                  />
                   {TURNSTILE_ENABLED && (
                     <TurnstileWidget
                       key={turnstileNonce}
@@ -395,25 +488,24 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                       onExpire={() => setTurnstileToken('')}
                     />
                   )}
-                  <WalletContinueButton
-                    onSuccess={onSuccess}
-                    setError={setError}
-                    isSubmitting={isSubmitting}
-                    setIsSubmitting={setIsSubmitting}
-                    turnstileToken={turnstileToken}
-                    resetTurnstile={resetTurnstile}
-                  />
                 </>
               ) : null}
-            </form>
+            </motion.form>
           ) : (
-            <form onSubmit={handlePasswordStep} className="space-y-4">
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs text-zinc-400">
+            <motion.form
+              key="password-step"
+              onSubmit={handlePasswordStep}
+              className="space-y-4"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 px-3.5 py-2.5 text-[13px] text-zinc-300">
                 <span className="min-w-0 truncate">{email}</span>
                 <button
                   type="button"
                   onClick={goBackToEmail}
-                  className="shrink-0 text-[11px] font-medium text-yellow-500/90 hover:text-yellow-400"
+                  className={`shrink-0 rounded text-xs font-medium text-yellow-500/90 transition-colors hover:text-yellow-400 ${FOCUS_RING}`}
                 >
                   Change
                 </button>
@@ -421,7 +513,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
 
               {isActivate && (
                 <div>
-                  <label htmlFor="login-invite-code" className="mb-1.5 block text-xs font-medium text-zinc-400">
+                  <label htmlFor="login-invite-code" className={LABEL}>
                     Invite code
                   </label>
                   <input
@@ -435,17 +527,17 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                       if (error) setError('');
                     }}
                     disabled={isSubmitting}
-                    className="h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/15 disabled:opacity-60"
+                    className={`${INPUT_BASE} px-3`}
                   />
                 </div>
               )}
 
               <div>
-                <label htmlFor="login-password" className="mb-1.5 block text-xs font-medium text-zinc-400">
+                <label htmlFor="login-password" className={LABEL}>
                   {isActivate ? 'Create password' : 'Password'}
                 </label>
                 <div className="relative">
-                  <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                  <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
                   <input
                     ref={inputRef}
                     id="login-password"
@@ -462,7 +554,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                       if (error) setError('');
                     }}
                     disabled={isSubmitting}
-                    className="h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 pl-10 pr-11 text-sm text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/15 disabled:opacity-60"
+                    className={`${INPUT_BASE} pl-10 pr-11`}
                   />
                   <button
                     type="button"
@@ -470,7 +562,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                     disabled={isSubmitting}
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                     aria-pressed={showPassword}
-                    className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-50"
+                    className={`absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-50 ${FOCUS_RING}`}
                   >
                     <AnimatePresence mode="wait" initial={false}>
                       {showPassword ? (
@@ -485,14 +577,11 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
 
               {isActivate && (
                 <div>
-                  <label
-                    htmlFor="login-confirm-password"
-                    className="mb-1.5 block text-xs font-medium text-zinc-400"
-                  >
+                  <label htmlFor="login-confirm-password" className={LABEL}>
                     Confirm password
                   </label>
                   <div className="relative">
-                    <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                    <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
                     <input
                       id="login-confirm-password"
                       type={showPassword ? 'text' : 'password'}
@@ -504,7 +593,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                         if (error) setError('');
                       }}
                       disabled={isSubmitting}
-                      className="h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 pl-10 pr-3 text-sm text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/15 disabled:opacity-60"
+                      className={`${INPUT_BASE} pl-10 pr-3`}
                     />
                   </div>
                 </div>
@@ -518,13 +607,12 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                 />
               )}
 
-              {error && <p className="text-xs text-red-400">{error}</p>}
+              {error && <FormError message={error} />}
 
               <motion.button
                 type="submit"
                 disabled={isSubmitting || !passwordReady}
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-yellow-500 text-sm font-semibold text-black transition-colors hover:bg-yellow-400 disabled:cursor-not-allowed disabled:opacity-50"
-                whileHover={isSubmitting ? undefined : { scale: 1.01 }}
+                className={PRIMARY_BTN}
                 whileTap={isSubmitting ? undefined : { scale: 0.98 }}
               >
                 {isSubmitting ? (
@@ -539,12 +627,10 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                   </>
                 )}
               </motion.button>
-            </form>
+            </motion.form>
           )}
 
-          <p className="mt-6 text-center text-xs leading-relaxed text-zinc-500">
-            Alpha Test | Limited Access
-          </p>
+          <p className="mt-5 text-center text-xs text-zinc-500">Beta Test</p>
         </div>
 
         <p className="mt-4 px-2 text-center text-[13px] leading-relaxed text-zinc-500 text-balance">

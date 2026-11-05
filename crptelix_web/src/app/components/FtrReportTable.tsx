@@ -221,7 +221,7 @@ function FtrMetricRow({ label, value, isPositive, isNegative, onSpawn }: FtrMetr
   const showTrend = isPositive || isNegative;
 
   return (
-    <div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded py-2 pl-2 pr-1 transition-colors hover:bg-zinc-800/50">
+    <div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded py-2 pl-2 pr-1 transition-colors hover:bg-white/5">
       <span className="truncate text-sm text-gray-400">{label}</span>
       <div className="flex shrink-0 items-center gap-1.5">
         <span

@@ -41,6 +41,19 @@ function widgetHasOwnChrome(widget: Widget): boolean {
   );
 }
 
+/** Widgets that keep the frame title but use the same dark skin as own-chrome widgets. */
+function widgetHasDarkSkin(widget: Widget): boolean {
+  return (
+    widgetHasOwnChrome(widget) ||
+    widget.type === 'table' ||
+    widget.type === 'stats-card' ||
+    widget.type === 'portfolio' ||
+    widget.type === 'portfolio-widget' ||
+    widget.type === 'funding-rates' ||
+    widget.type === 'position-impact'
+  );
+}
+
 function widgetBodyClass(type: Widget['type']): string {
   if (
     type === 'line-chart' ||
@@ -465,14 +478,14 @@ function FlexibleWidgetInner({
           <Card
             className={
               'group relative h-full overflow-hidden border ' +
-              (widgetHasOwnChrome(widget)
+              (widgetHasDarkSkin(widget)
                 ? 'gap-0 rounded-2xl bg-zinc-950 '
                 : 'bg-zinc-900 ') +
               (isSelected
                 ? 'border-zinc-600/80'
                 : isPreviewSelected
                   ? 'border-yellow-400/80 shadow-[0_0_0_1px_rgba(250,204,21,0.55)]'
-                  : widgetHasOwnChrome(widget)
+                  : widgetHasDarkSkin(widget)
                     ? 'border-yellow-900/40 hover:border-yellow-800/50'
                     : 'border-zinc-800 hover:border-zinc-700')
             }
@@ -504,7 +517,9 @@ function FlexibleWidgetInner({
                 'flex h-full min-h-0 flex-col overflow-hidden ' +
                 (widgetHasOwnChrome(widget)
                   ? 'bg-zinc-950 p-0 '
-                  : 'bg-zinc-900 p-3 ') +
+                  : widgetHasDarkSkin(widget)
+                    ? 'bg-[#0c0c0c] p-3 '
+                    : 'bg-zinc-900 p-3 ') +
                 (isInteracting ? 'pointer-events-none' : '')
               }
             >

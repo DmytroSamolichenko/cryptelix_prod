@@ -1,9 +1,8 @@
-import { TrendingUp, Wallet, Link2, Bot, User } from 'lucide-react';
+import { TrendingUp, Wallet, Bot, User } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { cn } from './ui/utils';
 import { CryptelixLogo } from './CryptelixLogo';
 import { ConnectBrokerModal } from './modals/ConnectBrokerModal';
-import { ConnectTradingViewModal } from './modals/ConnectTradingViewModal';
 import { UserProfileModal } from './UserProfileModal';
 import { motion } from 'motion/react';
 import { apiFetch } from '../lib/apiClient';
@@ -33,12 +32,10 @@ export function TopBar({
   const [connectedExchangeCount, setConnectedExchangeCount] = useState(0);
   const [connections, setConnections] = useState({
     broker: false,
-    tradingView: false,
   });
 
   const [modals, setModals] = useState({
     broker: false,
-    tradingView: false,
   });
 
   const [isUserProfileOpen, setIsUserProfileOpen] = useState(false);
@@ -66,6 +63,11 @@ export function TopBar({
     void refreshConnectionStatus();
   }, [refreshConnectionStatus]);
 
+  // The first fetch can fail silently (e.g. token refresh or API restart); re-check whenever the profile opens.
+  useEffect(() => {
+    if (isUserProfileOpen) void refreshConnectionStatus();
+  }, [isUserProfileOpen, refreshConnectionStatus]);
+
   useEffect(() => {
     const onCredentialsChanged = () => {
       void refreshConnectionStatus();
@@ -78,11 +80,11 @@ export function TopBar({
     };
   }, [refreshConnectionStatus]);
 
-  const openModal = (type: 'broker' | 'tradingView') => {
+  const openModal = (type: 'broker') => {
     setModals((prev) => ({ ...prev, [type]: true }));
   };
 
-  const closeModal = (type: 'broker' | 'tradingView') => {
+  const closeModal = (type: 'broker') => {
     setModals((prev) => ({ ...prev, [type]: false }));
     if (type === 'broker') {
       void refreshConnectionStatus();
@@ -94,6 +96,7 @@ export function TopBar({
   };
 
   const totalConnections = connectedExchangeCount;
+  const isWalletAccount = !userEmail;
 
   return (
     <>
@@ -132,31 +135,29 @@ export function TopBar({
                 )}
               </motion.button>
 
-              <button
-                type="button"
-                disabled
-                className="flex h-8 min-w-8 shrink-0 cursor-not-allowed items-center justify-center rounded-lg border border-zinc-800/50 bg-zinc-900/20 px-1.5 opacity-70 sm:h-9 sm:min-w-9"
-                title="Wallet — Coming Soon"
+              {/* Wallet accounts have no email (see UserProfileModal); show how the account was registered. */}
+              <div
+                role="img"
+                aria-label={
+                  isWalletAccount
+                    ? 'Signed in with a wallet'
+                    : 'Your account was registered with the email'
+                }
+                title={isWalletAccount ? 'Signed in with your wallet' : 'Your account was registered with the email'}
+                className={cn(
+                  'flex h-8 min-w-8 shrink-0 select-none items-center justify-center rounded-lg border px-1.5 sm:h-9 sm:min-w-9',
+                  isWalletAccount
+                    ? 'border-green-500/40 bg-green-500/10 shadow-[0_0_12px_rgba(34,197,94,0.15)]'
+                    : 'cursor-not-allowed border-zinc-800/50 bg-zinc-900/20 opacity-70'
+                )}
               >
-                <Wallet className="h-3.5 w-3.5 shrink-0 text-gray-600" />
-                <span className="ml-1 hidden text-[8px] font-medium leading-tight text-gray-500 xl:inline">
-                  <span className="block">Coming</span>
-                  <span className="block">Soon</span>
-                </span>
-              </button>
-
-              <button
-                type="button"
-                disabled
-                className="flex h-8 min-w-8 shrink-0 cursor-not-allowed items-center justify-center rounded-lg border border-zinc-800/50 bg-zinc-900/20 px-1.5 opacity-70 sm:h-9 sm:min-w-9"
-                title="TradingView — Coming Soon"
-              >
-                <Link2 className="h-3.5 w-3.5 shrink-0 text-gray-600" />
-                <span className="ml-1 hidden text-[8px] font-medium leading-tight text-gray-500 xl:inline">
-                  <span className="block">Coming</span>
-                  <span className="block">Soon</span>
-                </span>
-              </button>
+                <Wallet
+                  className={cn(
+                    'h-3.5 w-3.5 shrink-0',
+                    isWalletAccount ? 'text-green-400' : 'text-gray-600'
+                  )}
+                />
+              </div>
             </div>
 
             <div className="mx-1 hidden h-6 w-px shrink-0 bg-zinc-700/50 sm:block" />
@@ -233,12 +234,6 @@ export function TopBar({
         onClose={() => closeModal('broker')}
         onConnect={handleBrokerConnect}
       />
-      <ConnectTradingViewModal
-        isOpen={modals.tradingView}
-        onClose={() => closeModal('tradingView')}
-        onConnect={() => {}}
-      />
-
       <UserProfileModal
         isOpen={isUserProfileOpen}
         onClose={() => setIsUserProfileOpen(false)}

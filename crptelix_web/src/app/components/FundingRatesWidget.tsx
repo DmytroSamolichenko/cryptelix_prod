@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeftRight, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 
 import { apiFetch } from '../lib/apiClient';
+import { Dropdown, type DropdownOption } from './WidgetDropdown';
 
 type VenueId = 'binance' | 'phoenix';
 type PositionSide = 'long' | 'short';
@@ -134,6 +135,23 @@ function formatCountdown(iso: string | null | undefined): string {
   return `${h}h ${m}m`;
 }
 
+function MetricTile({
+  label,
+  value,
+  tone = 'text-[#e8e4d9]',
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 px-3 py-2">
+      <div className="text-[11px] uppercase tracking-wide text-zinc-500">{label}</div>
+      <div className={`mt-0.5 text-base font-medium tabular-nums ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
 function VenueCard({
   snap,
   highlight,
@@ -143,65 +161,64 @@ function VenueCard({
 }) {
   const payTone =
     snap.est_cost_24h_usd == null
-      ? 'text-gray-300'
+      ? 'text-[#e8e4d9]'
       : snap.est_cost_24h_usd > 0
         ? 'text-red-400'
         : snap.est_cost_24h_usd < 0
           ? 'text-emerald-400'
-          : 'text-gray-300';
+          : 'text-[#e8e4d9]';
 
   return (
     <div
-      className={`rounded-lg border px-3 py-2.5 ${
+      className={`rounded-2xl border p-4 ${
         highlight
-          ? 'border-yellow-500/50 bg-yellow-500/5'
-          : 'border-zinc-700/80 bg-zinc-950/40'
+          ? 'border-yellow-500/50 bg-gradient-to-b from-yellow-500/10 to-zinc-950/40'
+          : 'border-yellow-900/30 bg-gradient-to-b from-yellow-500/[0.04] to-zinc-950/40'
       }`}
     >
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-white">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm text-zinc-400">
+          <span className="font-medium text-[#e8e4d9]">{snap.symbol}</span> ·{' '}
           {VENUE_LABEL[snap.venue] ?? snap.venue}
         </span>
-        {highlight && (
-          <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">
+        {highlight ? (
+          <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-400">
             Lower 24h cost
+          </span>
+        ) : (
+          <span className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-400">
+            {snap.settle_model}
           </span>
         )}
       </div>
-      <div className="text-xl font-semibold tracking-tight text-white">
-        {formatPct(snap.funding_rate_percent)}
+      <div className="mt-2 flex items-baseline gap-2">
+        <span className="text-3xl font-medium tracking-tight tabular-nums text-[#e8e4d9]">
+          {formatPct(snap.funding_rate_percent)}
+        </span>
+        <span className="text-xs text-zinc-500">per interval</span>
       </div>
-      <div className="mt-0.5 text-[11px] text-gray-500">
-        per interval · {snap.settle_model}
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
-        <div className="text-gray-500">≈ / 24h</div>
-        <div className="text-right text-gray-300">
-          {formatPct(snap.rate_per_24h_percent)}
-        </div>
-        <div className="text-gray-500">Est. 24h cost</div>
-        <div className={`text-right font-medium ${payTone}`}>
-          {formatUsd(snap.est_cost_24h_usd)}
-        </div>
-        <div className="text-gray-500">Mark</div>
-        <div className="text-right text-gray-300">{formatPrice(snap.mark_price)}</div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <MetricTile label="≈ / 24h" value={formatPct(snap.rate_per_24h_percent)} />
+        <MetricTile
+          label="Est. 24h cost"
+          value={formatUsd(snap.est_cost_24h_usd)}
+          tone={payTone}
+        />
+        <MetricTile label="Mark price" value={formatPrice(snap.mark_price)} />
         {snap.venue === 'binance' ? (
-          <>
-            <div className="text-gray-500">Next funding</div>
-            <div className="text-right text-gray-300">
-              {formatCountdown(snap.next_funding_at)}
-            </div>
-          </>
+          <MetricTile label="Next funding" value={formatCountdown(snap.next_funding_at)} />
         ) : (
-          <>
-            <div className="text-gray-500">Settle note</div>
-            <div className="text-right text-gray-300">24h settle</div>
-          </>
+          <MetricTile label="Settlement" value="24h" />
         )}
       </div>
     </div>
   );
 }
+
+const VENUE_OPTIONS: DropdownOption<VenueId>[] = [
+  { value: 'binance', label: 'Binance', hint: 'CEX' },
+  { value: 'phoenix', label: 'Phoenix', hint: 'DEX' },
+];
 
 interface FundingRatesWidgetProps {
   initialData?: unknown;
@@ -306,119 +323,112 @@ export function FundingRatesWidget({
     return () => window.clearInterval(id);
   }, [load]);
 
-  const chip = useMemo(
-    () => (compareOn ? 'Compare' : VENUE_LABEL[venue]),
-    [compareOn, venue]
-  );
+  const segWrap = 'inline-flex shrink-0 gap-0.5 rounded-xl border border-zinc-800 bg-zinc-950 p-0.5';
+  const segBtn = (active: boolean, activeCls = 'bg-yellow-400 font-medium text-zinc-950') =>
+    `rounded-[10px] px-3 py-1 text-xs transition-colors ${
+      active ? activeCls : 'text-zinc-500 hover:text-zinc-300'
+    }`;
+  const labelCls = 'text-[11px] uppercase tracking-wider text-zinc-600';
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 p-1 text-xs text-gray-300">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <select
-          value={symbol}
-          onChange={(e) => setSymbol(e.target.value)}
-          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-white outline-none focus:border-yellow-500/50"
+    <div className="flex h-full min-h-0 flex-col gap-3 p-1 text-xs text-zinc-300">
+      <div className="flex flex-nowrap items-center gap-2">
+        <Dropdown
           title="Symbol"
-        >
-          {SYMBOLS.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+          value={symbol}
+          onChange={setSymbol}
+          options={SYMBOLS.map((s) => ({ value: s, label: s }))}
+        />
 
-        <select
-          value={venue}
-          onChange={(e) => setVenue(e.target.value as VenueId)}
-          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-white outline-none focus:border-yellow-500/50"
+        <Dropdown<VenueId>
           title="Primary data source"
-        >
-          <option value="binance">Binance</option>
-          <option value="phoenix">Phoenix</option>
-        </select>
-
-        <button
-          type="button"
-          onClick={() => setCompareOn((v) => !v)}
-          className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs transition-colors ${
-            compareOn
-              ? 'border-zinc-500 bg-white/10 text-zinc-100'
-              : 'border-zinc-700 bg-zinc-900 text-gray-300 hover:border-zinc-500'
-          }`}
-          title="Compare venues"
-        >
-          <ArrowLeftRight className="h-3.5 w-3.5" />
-          Compare
-        </button>
+          value={venue}
+          onChange={setVenue}
+          options={VENUE_OPTIONS}
+        />
 
         {compareOn && (
-          <select
-            value={prefs.compareVenue}
-            onChange={(e) => setCompareVenue(e.target.value as VenueId)}
-            className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-white outline-none focus:border-yellow-500/50"
+          <Dropdown<VenueId>
             title="Compare with"
-          >
-            {(['binance', 'phoenix'] as VenueId[])
-              .filter((v) => v !== venue)
-              .map((v) => (
-                <option key={v} value={v}>
-                  vs {VENUE_LABEL[v]}
-                </option>
-              ))}
-          </select>
+            prefix="vs"
+            value={prefs.compareVenue}
+            onChange={setCompareVenue}
+            options={VENUE_OPTIONS.filter((o) => o.value !== venue)}
+          />
         )}
 
         <button
           type="button"
+          role="switch"
+          aria-checked={compareOn}
+          onClick={() => setCompareOn((v) => !v)}
+          className="ml-auto inline-flex shrink-0 items-center gap-2 text-xs text-zinc-400 hover:text-zinc-200"
+          title="Compare venues"
+        >
+          Compare
+          <span
+            className={`relative h-[17px] w-[30px] rounded-full transition-colors ${
+              compareOn ? 'bg-yellow-400' : 'bg-zinc-800'
+            }`}
+          >
+            <span
+              className={`absolute top-[2px] h-[13px] w-[13px] rounded-full transition-all ${
+                compareOn ? 'left-[15px] bg-zinc-950' : 'left-[2px] bg-zinc-500'
+              }`}
+            />
+          </span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => void load()}
-          className="ml-auto inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-gray-400 hover:border-zinc-500 hover:text-white"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white"
           title="Refresh"
+          aria-label="Refresh"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[10px] uppercase tracking-wide text-gray-500">Notional</span>
-        {NOTIONALS.map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => setNotional(n)}
-            className={`rounded px-2 py-0.5 text-[11px] ${
-              notional === n
-                ? 'bg-zinc-700 text-white'
-                : 'bg-zinc-900 text-gray-400 hover:bg-zinc-800'
-            }`}
-          >
-            ${n >= 1000 ? `${n / 1000}k` : n}
-          </button>
-        ))}
-        <span className="ml-1 text-[10px] uppercase tracking-wide text-gray-500">Side</span>
-        {(['long', 'short'] as PositionSide[]).map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setSide(s)}
-            className={`rounded px-2 py-0.5 text-[11px] capitalize ${
-              side === s
-                ? s === 'long'
-                  ? 'bg-emerald-500/20 text-emerald-400'
-                  : 'bg-red-500/20 text-red-400'
-                : 'bg-zinc-900 text-gray-400 hover:bg-zinc-800'
-            }`}
-          >
-            {s}
-          </button>
-        ))}
-        <span className="ml-auto rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-gray-400">
-          {chip}
-        </span>
+      <div className="flex flex-nowrap items-center gap-2 overflow-x-auto [scrollbar-width:none]">
+        <span className={`${labelCls} shrink-0`}>Notional</span>
+        <div className={segWrap} role="group" aria-label="Notional">
+          {NOTIONALS.map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setNotional(n)}
+              className={segBtn(notional === n)}
+              aria-pressed={notional === n}
+            >
+              ${n >= 1000 ? `${n / 1000}k` : n}
+            </button>
+          ))}
+        </div>
+        <span className={`${labelCls} ml-1 shrink-0`}>Side</span>
+        <div className={segWrap} role="group" aria-label="Position side">
+          {(['long', 'short'] as PositionSide[]).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setSide(s)}
+              className={`${segBtn(
+                side === s,
+                s === 'long'
+                  ? 'bg-emerald-500/15 font-medium text-emerald-400'
+                  : 'bg-red-500/15 font-medium text-red-400'
+              )} capitalize`}
+              aria-pressed={side === s}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {error && (
-          <div className="rounded border border-red-500/30 bg-red-500/10 px-2 py-2 text-[11px] text-red-300">
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
             {error}
           </div>
         )}
@@ -438,7 +448,7 @@ export function FundingRatesWidget({
               Object.entries(compare.errors).map(([v, msg]) => (
                 <div
                   key={v}
-                  className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-300"
+                  className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-[11px] text-red-300"
                 >
                   {VENUE_LABEL[v as VenueId] ?? v}: {msg}
                 </div>
@@ -447,11 +457,11 @@ export function FundingRatesWidget({
         )}
 
         {!error && loading && !single && !compare && (
-          <div className="flex h-24 items-center justify-center text-gray-500">Loading…</div>
+          <div className="flex h-24 items-center justify-center text-zinc-500">Loading…</div>
         )}
       </div>
 
-      <p className="border-t border-zinc-800 pt-1.5 text-[10px] leading-snug text-gray-600">
+      <p className="border-t border-zinc-900 pt-2 text-[11px] leading-snug text-zinc-600">
         Educational funding view · public APIs · models differ by venue · not financial advice
         {compare?.disclaimer ? ` · ${compare.disclaimer}` : ''}
       </p>
