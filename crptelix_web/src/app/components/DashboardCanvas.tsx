@@ -1004,6 +1004,9 @@ export function DashboardCanvas({
       'session-heatmap': 'Session Heatmap',
       'funding-rates': 'Funding Rates',
       'position-impact': 'Position Impact',
+      'perp-coverage': 'Perp Coverage',
+      'venue-spread': 'Spread',
+      'fee-comparator': 'Fee Comparator',
     };
 
     const randomX = Math.floor(Math.random() * 400) + 50;

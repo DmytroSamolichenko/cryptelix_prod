@@ -141,6 +141,98 @@ def fetch_funding_rates(symbol: str) -> dict[str, Any]:
 
 
 ORDERBOOK_CACHE_TTL_SEC = 3.0
+MARKETS_CACHE_TTL_SEC = 600.0
+
+
+def list_perp_markets(*, use_cache: bool = True) -> dict[str, Any]:
+    cache_key = "markets|all"
+    if use_cache:
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+    raw = _http_get_json("/v1/view/markets")
+    rows = raw.get("markets") if isinstance(raw, dict) else None
+    if not isinstance(rows, list):
+        raise PhoenixMarketError("Unexpected markets payload")
+
+    markets: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        symbol = str(row.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        status = str(row.get("marketStatus") or "").lower()
+        if status and status not in ("active", "open", ""):
+            continue
+        markets.append(
+            {
+                "symbol": symbol,
+                "venue_symbol": symbol,
+                "base": symbol,
+                "quote": "USDC",
+                "listed": True,
+            }
+        )
+
+    result = {
+        "venue": "phoenix",
+        "markets": markets,
+        "count": len(markets),
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "cached": False,
+        "source": "phoenix_perp_public",
+    }
+    if use_cache:
+        _cache_set(cache_key, result, ttl_sec=MARKETS_CACHE_TTL_SEC)
+    return result
+
+
+def get_fee_schedule(symbol_raw: object = "SOL", *, use_cache: bool = True) -> dict[str, Any]:
+    symbol = normalize_phoenix_symbol(symbol_raw)
+    cache_key = f"fees|{symbol}"
+    if use_cache:
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+    raw = _http_get_json("/v1/view/markets")
+    rows = raw.get("markets") if isinstance(raw, dict) else None
+    if not isinstance(rows, list):
+        raise PhoenixMarketError("Unexpected markets payload for fees")
+
+    row = next(
+        (r for r in rows if isinstance(r, dict) and str(r.get("symbol") or "").upper() == symbol),
+        None,
+    )
+    if row is None and rows:
+        row = next((r for r in rows if isinstance(r, dict)), None)
+    if not isinstance(row, dict):
+        raise PhoenixMarketError(f"No fee data for {symbol}")
+
+    fees = row.get("fees") if isinstance(row.get("fees"), dict) else {}
+    maker_micro = _safe_float(fees.get("makerFeeMicro"))
+    taker_micro = _safe_float(fees.get("takerFeeMicro"))
+    if maker_micro is None or taker_micro is None:
+        raise PhoenixMarketError(f"Missing maker/taker fees for {symbol}")
+
+    # micro = 1e-6 of notional → bps = micro / 100
+    result = {
+        "venue": "phoenix",
+        "maker_bps": maker_micro / 100.0,
+        "taker_bps": taker_micro / 100.0,
+        "tier": "base",
+        "symbol": symbol,
+        "as_of": datetime.now(timezone.utc).date().isoformat(),
+        "source": "phoenix_perp_public",
+        "note": f"From market {row.get('symbol') or symbol} fee schedule.",
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "cached": False,
+    }
+    if use_cache:
+        _cache_set(cache_key, result, ttl_sec=MARKETS_CACHE_TTL_SEC)
+    return result
 
 
 def _parse_book_levels(raw: object) -> list[tuple[float, float]]:

@@ -507,6 +507,9 @@ function AuthenticatedApp({ user, logout }: { user: AuthUser; logout: () => void
                       'session-heatmap': 'Session Heatmap',
                       'funding-rates': 'Funding Rates',
                       'position-impact': 'Position Impact',
+                      'perp-coverage': 'Perp Coverage',
+                      'venue-spread': 'Spread',
+                      'fee-comparator': 'Fee Comparator',
                     };
                     const def = widgetDefaultSize(type);
                     const newWidget = {
