@@ -18,7 +18,7 @@
       --surface:  #141414;
       --line:     #1E1E1E;
       --text:     #B8B8B8;
-      --dim:      #5C5C5C;
+      --dim:      #8A8A8A;
       --bright:   #EBEBEB;
       --red:      #C0504A;
       --red-bg:   #140808;
@@ -146,7 +146,7 @@
     table { width: 100%; border-collapse: collapse; min-width: 480px; }
 
     th {
-      font-size: 10.5px;
+      font-size: 11px;
       font-weight: 500;
       letter-spacing: 0.1em;
       text-transform: uppercase;
@@ -168,6 +168,13 @@
     }
 
     td:first-child { color: var(--bright); font-weight: 400; }
+
+    th:first-child, td:first-child {
+      position: sticky;
+      left: 0;
+      background: var(--bg);
+    }
+    th:first-child { background: var(--surface); }
     tr:last-child td { border-bottom: none; }
 
     .note {
@@ -180,7 +187,7 @@
     .note p { margin: 0; font-size: 14px; color: #A0A0A0; font-weight: 300; }
 
     .note .note-label {
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 500;
       letter-spacing: 0.12em;
       text-transform: uppercase;
@@ -247,7 +254,7 @@
   <div class="section">
     <div class="doc-header">
       <div>
-        <p class="doc-title">Cryptelix Analytics Platform &mdash; September 2026</p>
+        <p class="doc-title">Cryptelix Analytics Platform &mdash; Effective 11 November 2026</p>
         <h1>Terms &amp; <span>Conditions</span></h1>
       </div>
       <img src="/cryptelix-wordmark.png" alt="Cryptelix">
@@ -283,10 +290,25 @@
 
     <h2>Accounts</h2>
     <p>
-      Some features require an account. We ask for an email address to authenticate you
-      and send critical system notices. We do not ask for KYC, a full name, a phone number,
-      or a physical address.
+      Some features require an account. You can sign in with an email address or with a
+      crypto wallet. An email address is used to authenticate you and to send critical
+      system notices. We do not ask for KYC, a full name, a phone number, or a physical
+      address.
     </p>
+    <p>
+      If you use a crypto wallet for your account, we store the related wallet information
+      in encrypted form. We never ask for your seed phrase or private keys, and we cannot
+      move assets from your wallet.
+    </p>
+    <div class="note warn">
+      <span class="note-label">Wallet-based accounts</span>
+      <p>
+        If your account is tied to a wallet only and you lose access to that wallet, you may
+        lose access to your account as well. To avoid this, link an email address to your
+        account in settings. We cannot guarantee recovery of an account that has no linked
+        email and no access to its original wallet.
+      </p>
+    </div>
     <ul>
       <li>Keep the information you give us accurate enough for account access.</li>
       <li>You are responsible for keeping your credentials secure. On our side, we protect stored data as described in the <a href="/data-security-policy">Data Security Policy</a>.</li>
@@ -388,6 +410,15 @@
       <li>Upload malicious code or disrupt availability.</li>
       <li>Try to reach other users' data.</li>
     </ul>
+    <div class="note warn">
+      <span class="note-label">Consequences</span>
+      <p>
+        If we find any of these actions linked to your account, we may permanently remove
+        your access to the platform without prior notice, and we reserve the right to take
+        legal action against you, including reporting the activity to the competent
+        authorities and seeking compensation for damages.
+      </p>
+    </div>
 
     <h2>Intellectual Property</h2>
     <p>
@@ -428,17 +459,43 @@
 
     <h2>Subscriptions &amp; Payments</h2>
     <p>
-      Cryptelix is currently a limited-access product. There is no paid subscription
-      in the live product at the time these Terms were written.
+      Cryptelix works on a subscription model. The plans currently available are:
     </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Feature</th><th>Basic &mdash; Free</th><th>Premium &mdash; $15 / month</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Dashboards</td><td>5</td><td>10+</td></tr>
+          <tr><td>AI Deals Base Analysis</td><td>5</td><td>10</td></tr>
+          <tr><td>AI Conversation</td><td>100k tokens</td><td>300k tokens</td></tr>
+          <tr><td>Broker Connections</td><td>1</td><td>3</td></tr>
+        </tbody>
+      </table>
+    </div>
     <p>
-      If we introduce paid plans, the price and billing details will be shown before
-      you pay, and this section will be updated. Until then, the following are not set:
+      Plans, prices, and limits may change over time. The price and billing details of a
+      plan are always shown before you pay.
     </p>
+
+    <p><strong style="color:var(--bright);font-weight:500;">Payment processing.</strong>
+      Payments are processed by a third-party payment provider, not by Cryptelix directly.
+      We do not store your full card details.
+    </p>
+
+    <p><strong style="color:var(--bright);font-weight:500;">Auto-renewal.</strong>
+      Paid subscriptions renew automatically at the end of each billing period until you
+      cancel. You can cancel at any time, and the cancellation takes effect at the end of
+      the current paid period.
+    </p>
+
+    <p><strong style="color:var(--bright);font-weight:500;">Refunds.</strong></p>
     <ul>
-      <li><span class="confirm">[CONFIRM BILLING PROVIDER]</span></li>
-      <li><span class="confirm">[CONFIRM WHETHER SUBSCRIPTIONS AUTO-RENEW]</span></li>
-      <li><span class="confirm">[CONFIRM REFUND POLICY]</span></li>
+      <li>Users in the European Union are eligible for a refund within <strong>14 days</strong> of payment.</li>
+      <li>Users in the United States are eligible for a refund within <strong>30 days</strong> of payment.</li>
+      <li>All other cases are non-refundable, or are reviewed by our team individually. We reserve the full right to decline a refund request.</li>
+      <li>Refunds are handled directly through our support. Contact us at <a href="mailto:support@cryptelix.app">support@cryptelix.app</a>.</li>
     </ul>
 
     <h2>Account Suspension &amp; Termination</h2>
@@ -467,36 +524,48 @@
       interruptions, or loss of data.
     </p>
     <p>
-      We have not set a specific monetary cap in these Terms.
-      <span class="confirm">[CONFIRM LIABILITY CAP, IF ANY]</span>
+      Where liability cannot be excluded by law, any claim against Cryptelix is limited to
+      the amount you paid to Cryptelix during the 3 months before the event that gave rise
+      to the claim.
     </p>
 
     <h2>Changes to These Terms</h2>
     <p>
-      We may update these Terms. The effective date is shown on this page.
-      If a change is material, we will notify you in an appropriate way —
-      <span class="confirm">[CONFIRM NOTICE METHOD]</span>.
+      We reserve the right to update or modify these Terms &amp; Conditions from time to time.
+      For material changes, we will notify users by email or through a prominent notice
+      within the Cryptelix application before the changes take effect, where reasonably
+      possible. The updated version will include a revised effective date. Continued use
+      of the Service after the changes take effect constitutes acceptance of the updated Terms.
     </p>
 
     <h2>Governing Law</h2>
     <p>
-      The legal entity and jurisdiction for Cryptelix are not stated here yet.
+      These Terms &amp; Conditions shall be governed by and construed in accordance with the
+      laws of Ukraine.
     </p>
-    <div class="note">
-      <span class="note-label">To confirm</span>
-      <p><span class="confirm">[CONFIRM GOVERNING LAW AND JURISDICTION]</span></p>
-    </div>
+    <p>
+      Any disputes arising out of or in connection with these Terms &amp; Conditions shall be
+      subject to the jurisdiction of the competent courts of Ukraine, subject to applicable
+      mandatory consumer protection laws and jurisdictional rights in the user's country
+      of residence.
+    </p>
+    <p>
+      Cryptelix is operated by Dmytro Samolichenko, an individual entrepreneur (FOP)
+      registered in Ukraine.
+    </p>
 
     <h2>Contact</h2>
     <p>
-      Questions about these Terms can be sent to the address below once it is published.
+      Questions about these Terms can be sent to
+      <a href="mailto:legal@cryptelix.app">legal@cryptelix.app</a>.
+      Support and refund requests go to
+      <a href="mailto:support@cryptelix.app">support@cryptelix.app</a>.
     </p>
-    <p><span class="confirm">[ADD OFFICIAL CONTACT EMAIL]</span></p>
   </div>
 
   <div class="doc-footer">
     <p>Cryptelix Analytics Platform</p>
-    <p>Effective September 2026 &mdash; supersedes all prior versions</p>
+    <p>Effective 11 November 2026 &mdash; supersedes all prior versions</p>
   </div>
 </div>
 </body>

@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "crptelix_web/public/terms-and-conditions/index.html"
+        ],
+        "createdAt": "2026-11-11T11:34:09.576Z",
+        "reason": "user confirmed: false positive, table cells have 12-16px padding; detector flags the table touching the .table-wrap border"
+      }
+    ]
+  }
+}
